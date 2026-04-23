@@ -40,19 +40,35 @@ _BUY = {'買進', '買入', 'BUY', 'Buy', 'buy'}
 _SELL = {'賣出', '賣', 'SELL', 'Sell', 'sell'}
 
 
-def get_gmail_service():
-    creds = None
+def _load_creds():
+    """環境變數 TOKEN_PICKLE_B64 優先；否則退回本機 token.pickle。"""
+    b64 = os.environ.get('TOKEN_PICKLE_B64')
+    if b64:
+        return pickle.loads(base64.b64decode(b64))
     if os.path.exists('token.pickle'):
         with open('token.pickle', 'rb') as token:
-            creds = pickle.load(token)
+            return pickle.load(token)
+    return None
+
+
+def _save_creds(creds):
+    """盡力寫回本機 token.pickle；雲端唯讀檔案系統失敗就忽略。"""
+    try:
+        with open('token.pickle', 'wb') as token:
+            pickle.dump(creds, token)
+    except OSError as e:
+        print(f"token.pickle 寫回失敗（忽略，改用環境變數時正常）：{e}")
+
+
+def get_gmail_service():
+    creds = _load_creds()
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
         else:
             flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
             creds = flow.run_local_server(port=0)
-        with open('token.pickle', 'wb') as token:
-            pickle.dump(creds, token)
+        _save_creds(creds)
     return build('gmail', 'v1', credentials=creds)
 
 
