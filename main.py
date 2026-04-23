@@ -6,7 +6,6 @@
 """
 
 import asyncio
-import schedule
 import time
 from datetime import date
 from gmail_reader import get_portfolio_from_gmail
@@ -14,7 +13,7 @@ from weather import get_weather_report
 from stock_news import get_stock_report
 from portfolio import build_portfolio_summary
 from telegram_sender import send_message, send_photo
-from config import MANUAL_STOCKS, SCHEDULE_UTC
+from config import MANUAL_STOCKS
 
 def run_daily_report():
     print("開始執行每日情報...")
@@ -66,12 +65,5 @@ def run_daily_report():
 
     print("每日情報傳送完成！")
 
-# 排程
-schedule.every().day.at(SCHEDULE_UTC).do(run_daily_report)
-
 if __name__ == "__main__":
-    print("機器人啟動，等待排程...")
-    run_daily_report()  # 啟動時先跑一次
-    while True:
-        schedule.run_pending()
-        time.sleep(60)
+    run_daily_report()
