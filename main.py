@@ -1,7 +1,6 @@
 """
 情報機器人 v2 - 主程式
 - HTML 格式（粗體、連結）
-- 天氣折線圖
 - PTT 熱門排序 + 可點擊連結
 """
 
@@ -13,7 +12,7 @@ from gmail_reader import get_portfolio_from_gmail
 from weather import get_weather_report
 from stock_news import get_stock_report
 from portfolio import build_portfolio_summary
-from telegram_sender import send_message, send_photo
+from telegram_sender import send_message
 
 
 def _env_list(name):
@@ -44,7 +43,7 @@ def run_daily_report():
     print(f"追蹤股票：{all_stocks}")
 
     # 2. 天氣報告
-    weather_msg, chart_path = get_weather_report()
+    weather_msg = get_weather_report()
     weather_full = f"""<b>🌅 每日情報</b>  {today}
 
 ━━━━━━━━━━━━━━━━━
@@ -53,9 +52,6 @@ def run_daily_report():
 
 {weather_msg}"""
     asyncio.run(send_message(weather_full))
-
-    if chart_path:
-        asyncio.run(send_photo(chart_path, caption="📈 今日氣溫變化"))
 
     # 3. 持倉概覽（Yahoo 現價 + 損益）
     portfolio_summary = build_portfolio_summary(portfolio)

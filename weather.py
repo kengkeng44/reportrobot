@@ -2,18 +2,12 @@
 天氣模組 v2
 - 中央氣象署為主
 - OpenWeatherMap 輔助
-- matplotlib 畫溫度折線圖
 - AI 整理報告（不含來源狀態表）
 """
 
 import os
-import tempfile
 import requests
 import anthropic
-import matplotlib
-matplotlib.use('Agg')  # 無視窗環境
-import matplotlib.pyplot as plt
-import matplotlib.font_manager as fm
 from datetime import datetime
 from prompts import WEATHER_PROMPT
 
@@ -39,21 +33,6 @@ OWM_API_KEY = _env("OWM_API_KEY")
 ANTHROPIC_API_KEY = _env("ANTHROPIC_API_KEY")
 WEATHER_LOCATIONS = _env_list("WEATHER_LOCATIONS")
 
-# 嘗試使用中文字體
-def get_chinese_font():
-    """找到可用的中文字體"""
-    font_candidates = [
-        'Noto Sans CJK TC', 'Microsoft JhengHei', 'PingFang TC',
-        'WenQuanYi Micro Hei', 'SimHei', 'Arial Unicode MS'
-    ]
-    for font_name in font_candidates:
-        try:
-            font_path = fm.findfont(fm.FontProperties(family=font_name))
-            if font_path and 'fallback' not in font_path.lower():
-                return fm.FontProperties(fname=font_path)
-        except:
-            continue
-    return fm.FontProperties()
 
 def _extract_element_value(ev_list):
     """從 ElementValue/elementValue 陣列取出值（新 API 有 Temperature/WindSpeed 等各種鍵名）。"""
@@ -182,87 +161,15 @@ def get_owm_weather():
             print(f"OWM 失敗 ({name})：{e}")
     return results
 
-def generate_temp_chart(cwa_data):
-    """畫溫度折線圖，回傳圖片路徑"""
-    chart_path = os.path.join(tempfile.gettempdir(), 'weather_chart.png')
-    font_prop = get_chinese_font()
-
-    fig, ax = plt.subplots(figsize=(10, 4), dpi=100)
-    fig.patch.set_facecolor('#1a1a2e')
-    ax.set_facecolor('#1a1a2e')
-
-    colors = {'淡水區': '#00d2ff', '金山區': '#ff6b6b'}
-
-    for location, elements in cwa_data.items():
-        # 主 API 回傳「平均溫度」；舊版是「溫度」；備用 API 沒有單點溫度
-        temps = elements.get('平均溫度') or elements.get('溫度') or elements.get('T') or []
-        if not temps:
-            continue
-
-        hours = []
-        values = []
-        for t in temps[:24]:
-            try:
-                time_str = t['time']
-                dt = datetime.fromisoformat(time_str.replace('Z', '+00:00'))
-                hours.append(dt.strftime('%H:%M'))
-                values.append(float(t['value']))
-            except:
-                continue
-
-        if hours and values:
-            color = colors.get(location, '#ffffff')
-            ax.plot(hours, values, marker='o', color=color,
-                    linewidth=2.5, markersize=6, label=location)
-            # 標注溫度數值
-            for i, (h, v) in enumerate(zip(hours, values)):
-                ax.annotate(f'{v:.0f}°', (h, v), textcoords="offset points",
-                           xytext=(0, 12), ha='center', fontsize=9,
-                           color=color, fontproperties=font_prop)
-
-    ax.set_title('Today Temperature', fontsize=16,
-                color='white', pad=15, fontproperties=font_prop)
-    ax.set_xlabel('Time', fontsize=11, color='#aaa', fontproperties=font_prop)
-    ax.set_ylabel('Temp (°C)', fontsize=11, color='#aaa', fontproperties=font_prop)
-
-    ax.tick_params(colors='#888', labelsize=9)
-    ax.spines['bottom'].set_color('#333')
-    ax.spines['left'].set_color('#333')
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
-    ax.grid(True, alpha=0.15, color='white')
-    ax.legend(prop=font_prop, facecolor='#1a1a2e', edgecolor='#333',
-              labelcolor='white', fontsize=10)
-
-    plt.xticks(rotation=45)
-    plt.tight_layout()
-    plt.savefig(chart_path, facecolor='#1a1a2e', bbox_inches='tight')
-    plt.close()
-    return chart_path
 
 def get_weather_report():
-    """取得完整天氣報告（文字 + 圖片路徑）"""
+    """取得完整天氣報告（文字）"""
     cwa_data = get_cwa_weather()
     if not cwa_data:
         print("詳細預報（F-D0047-071）沒資料，改用 36 小時備用預報（F-C0032-001）")
         cwa_data = get_cwa_weather_fallback()
     owm_data = get_owm_weather()
 
-    # 畫折線圖（只有詳細預報含逐 3 小時溫度才能畫）
-    chart_path = None
-    has_hourly_temp = any(
-        elements.get('平均溫度') or elements.get('溫度') or elements.get('T')
-        for elements in cwa_data.values()
-    )
-    if cwa_data and has_hourly_temp:
-        try:
-            chart_path = generate_temp_chart(cwa_data)
-        except Exception as e:
-            print(f"畫圖失敗：{e}")
-    elif cwa_data:
-        print("備用預報沒有逐小時溫度，本次不產圖")
-
-    # AI 整理
     today = datetime.now().strftime("%Y-%m-%d")
     prompt = WEATHER_PROMPT.format(
         date=today,
@@ -283,4 +190,4 @@ def get_weather_report():
         print(f"AI 天氣整理失敗：{e}")
         weather_text = "天氣資料暫時無法取得"
 
-    return weather_text, chart_path
+    return weather_text

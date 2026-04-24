@@ -274,7 +274,10 @@ def format_forum_html(articles):
             icon = "👎"
         else:
             icon = "💬"
-        lines.append(f'  {icon} [{heat}] <a href="{a["link"]}">{a["title"]}</a>')
+        title = a['title']
+        zh = a.get('title_zh')
+        display = f"{title}（{zh}）" if zh else title
+        lines.append(f'  {icon} [{heat}] <a href="{a["link"]}">{display}</a>')
     return "\n".join(lines)
 
 
@@ -311,17 +314,21 @@ def get_stock_report(stock_id):
     reddit_wsb = get_reddit_posts(stock_id, "wallstreetbets")
     stocktwits_msgs = get_stocktwits_messages(stock_id)
     dcard_posts = get_dcard_posts(stock_id)
+    translate_titles(reddit_stocks + reddit_wsb + stocktwits_msgs)
 
     news_titles = [f"{n['title']}（{n['title_zh']}）" if n.get('title_zh') else n['title']
                    for n in yahoo_news + cnyes_news]
     news_summary = "\n".join(f"• {t}" for t in news_titles) or "暫無新聞"
 
+    def _t(a):
+        return f"{a['title']}（{a['title_zh']}）" if a.get('title_zh') else a['title']
+
     forum_lines = []
-    forum_lines += [f"[PTT {a['heat']}推] {a['title']}" for a in ptt_articles]
-    forum_lines += [f"[Reddit/stocks {a['heat']}分] {a['title']}" for a in reddit_stocks]
-    forum_lines += [f"[r/WSB {a['heat']}分] {a['title']}" for a in reddit_wsb]
-    forum_lines += [f"[StockTwits {a['heat']}讚] {a['title']}" for a in stocktwits_msgs]
-    forum_lines += [f"[Dcard {a['heat']}熱] {a['title']}" for a in dcard_posts]
+    forum_lines += [f"[PTT {a['heat']}推] {_t(a)}" for a in ptt_articles]
+    forum_lines += [f"[Reddit/stocks {a['heat']}分] {_t(a)}" for a in reddit_stocks]
+    forum_lines += [f"[r/WSB {a['heat']}分] {_t(a)}" for a in reddit_wsb]
+    forum_lines += [f"[StockTwits {a['heat']}讚] {_t(a)}" for a in stocktwits_msgs]
+    forum_lines += [f"[Dcard {a['heat']}熱] {_t(a)}" for a in dcard_posts]
     forum_summary = "\n".join(forum_lines) or "暫無相關討論"
 
     ai_analysis = get_ai_analysis(stock_id, news_summary, forum_summary)
