@@ -17,7 +17,18 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
-from config import GMAIL_USER, PDF_PASSWORD_PREFIX
+
+
+def _env(name):
+    val = os.environ.get(name)
+    if val:
+        return val
+    import config
+    return getattr(config, name)
+
+
+GMAIL_USER = _env("GMAIL_USER")
+PDF_PASSWORD_PREFIX = _env("PDF_PASSWORD_PREFIX")
 
 SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
 

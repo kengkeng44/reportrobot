@@ -6,6 +6,7 @@
 """
 
 import asyncio
+import os
 import time
 from datetime import date
 from gmail_reader import get_portfolio_from_gmail
@@ -13,7 +14,17 @@ from weather import get_weather_report
 from stock_news import get_stock_report
 from portfolio import build_portfolio_summary
 from telegram_sender import send_message, send_photo
-from config import MANUAL_STOCKS
+
+
+def _env_list(name):
+    val = os.environ.get(name)
+    if val:
+        return [x.strip() for x in val.split(",") if x.strip()]
+    import config
+    return getattr(config, name)
+
+
+MANUAL_STOCKS = _env_list("MANUAL_STOCKS")
 
 def run_daily_report():
     print("開始執行每日情報...")

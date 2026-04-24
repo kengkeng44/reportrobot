@@ -6,13 +6,24 @@
 """
 
 import json
+import os
 import re
 import requests
 import feedparser
 import anthropic
 from bs4 import BeautifulSoup
-from config import ANTHROPIC_API_KEY
 from prompts import STOCK_ANALYSIS_PROMPT, FORUM_SUMMARY_PROMPT
+
+
+def _env(name):
+    val = os.environ.get(name)
+    if val:
+        return val
+    import config
+    return getattr(config, name)
+
+
+ANTHROPIC_API_KEY = _env("ANTHROPIC_API_KEY")
 
 AI_MODEL = "claude-sonnet-4-5"
 

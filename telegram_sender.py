@@ -4,8 +4,20 @@ Telegram 傳送模組
 - 支援傳送圖片
 """
 
+import os
 import telegram
-from config import TELEGRAM_TOKEN, TELEGRAM_CHAT_ID
+
+
+def _env(name):
+    val = os.environ.get(name)
+    if val:
+        return val
+    import config
+    return getattr(config, name)
+
+
+TELEGRAM_TOKEN = _env("TELEGRAM_TOKEN")
+TELEGRAM_CHAT_ID = _env("TELEGRAM_CHAT_ID")
 
 async def send_message(text):
     """傳送 HTML 格式訊息"""

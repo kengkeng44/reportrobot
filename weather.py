@@ -15,8 +15,29 @@ matplotlib.use('Agg')  # 無視窗環境
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
 from datetime import datetime
-from config import CWA_API_KEY, OWM_API_KEY, ANTHROPIC_API_KEY, WEATHER_LOCATIONS
 from prompts import WEATHER_PROMPT
+
+
+def _env(name):
+    val = os.environ.get(name)
+    if val:
+        return val
+    import config
+    return getattr(config, name)
+
+
+def _env_list(name):
+    val = os.environ.get(name)
+    if val:
+        return [x.strip() for x in val.split(",") if x.strip()]
+    import config
+    return getattr(config, name)
+
+
+CWA_API_KEY = _env("CWA_API_KEY")
+OWM_API_KEY = _env("OWM_API_KEY")
+ANTHROPIC_API_KEY = _env("ANTHROPIC_API_KEY")
+WEATHER_LOCATIONS = _env_list("WEATHER_LOCATIONS")
 
 # 嘗試使用中文字體
 def get_chinese_font():
