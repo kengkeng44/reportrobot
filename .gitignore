@@ -1,6 +1,26 @@
+# 敏感檔案 — 本機備用設定與憑證，絕不可進 git
 config.py
 credentials.json
 token.pickle
+*.pickle
+.env
+.env.local
+railway_env.txt
+token_b64.txt
+
+# Python
 __pycache__/
-.claude/
 *.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+.Python
+*.egg-info/
+
+# 編輯器與工具
+.claude/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
