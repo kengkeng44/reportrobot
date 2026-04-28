@@ -92,8 +92,8 @@ cheng.robot/
 ## 本機安裝
 
 ```bash
-git clone https://github.com/kengkeng44/reportrobot.git
-cd reportrobot
+git clone https://github.com/kengkeng44/ReportRobot.git
+cd ReportRobot
 python -m venv .venv
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
@@ -114,7 +114,7 @@ python main.py
 
 ## Railway 部署
 
-1. **連 GitHub repo**：Railway → New Project → Deploy from GitHub → 選 `kengkeng44/reportrobot`
+1. **連 GitHub repo**：Railway → New Project → Deploy from GitHub → 選 `kengkeng44/ReportRobot`
 2. **設環境變數**：到專案 Variables 頁，把 `.env.example` 列出的變數全部貼上去（用 Raw Editor 一次貼整批最快）
 3. **產生 `TOKEN_PICKLE_B64`**：本機跑完 OAuth 拿到 `token.pickle` 後，base64 編碼貼到 Railway：
 
