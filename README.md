@@ -8,6 +8,43 @@
 - 北台灣天氣預報（中央氣象署 + OpenWeatherMap）+ 溫度折線圖
 - AI 產業鏈分析（Claude）
 
+## 設計亮點 / Project Highlights
+
+> 個人 side project · 約 1,343 行 Python · 模組化 8 個檔 · 部署於 Railway 每日穩定運行
+
+**解決的痛點**：早上要分別查股價、看新聞、查天氣太瑣碎；券商對帳單是加密 PDF 沒辦法直接看持倉；英文新聞看得慢、散戶情緒分散在各論壇。一份每日推播全部解決。
+
+### 技術亮點
+
+1. **Gmail 加密 PDF → 持倉狀態管線**
+   OAuth2 抓信 → `pikepdf` 用「身分證+生日」格式密碼解密 → `pdfplumber` 抽純文字 → 用「交易所代碼白名單 + ticker 黑名單」雙重防呆解析買賣紀錄（避免把 `USD`/`PDF`/`SEC` 誤判為股票）→ 累計成 `{ticker: {shares, avg_cost}}`。同時支援日對帳單與月對帳單兩種格式。
+
+2. **OAuth Token 雲端化**
+   Railway 唯讀檔案系統無法寫回 `token.pickle`，解法是本機 OAuth 完成後將 token base64 編碼存進環境變數 `TOKEN_PICKLE_B64`。`_load_creds()` 優先讀環境變數、退回本機檔案，**同份程式碼支援本機開發與雲端部署**。
+
+3. **5 種資料來源融合**
+   股價（Yahoo Finance v8 chart API）、新聞（Yahoo RSS + 鉅亨網）、論壇（PTT/Reddit/StockTwits/Dcard）、天氣（中央氣象署 F-D0047-071 為主、OpenWeatherMap 為輔）、AI（Anthropic Claude）。資料源衝突時以權威來源為準（例：天氣以 CWA 為準）。
+
+4. **AI 整合與 Prompt 集中管理**
+   所有 Prompt 集中在 `prompts.py`（天氣分析、產業鏈分析、論壇摘要、英文標題翻譯），改 prompt 不用翻多個檔。英文新聞標題批次塞進一個 prompt 要求 Claude 回 JSON 陣列，正則抽 `[...]` 防它前後加廢話、失敗 fallback 用原英文。
+
+5. **Serverless Cron 部署**
+   `railway.json` 設 `cronSchedule: "0 0 * * *"` + `restartPolicyType: NEVER`，跑完一次就退出，不常駐 = 不燒 Railway 額度。每日 UTC 00:00（台灣 08:00）自動觸發。
+
+6. **無視窗環境圖表**
+   matplotlib 強制 `Agg` backend 在雲端無顯示器環境渲染溫度折線圖成 PNG，再透過 Telegram Bot API 推送圖片。
+
+### 設計取捨
+
+| 決策 | 理由 |
+|---|---|
+| Cron 跑完即退 vs. 常駐排程 | Railway 計時收費，跑完退出每天只用幾秒；常駐會燒整天額度 |
+| Prompt 集中在 `prompts.py` | 改 prompt 不用翻三個檔；接手者只看一個檔就懂所有 AI 行為 |
+| `config.py` + 環境變數雙層 fallback | 本機改 `config.py` 即可；雲端強制走環境變數，credentials 不會誤上 git |
+| token.pickle 改 base64 上雲 | Railway 唯讀檔案系統無法寫回，base64 環境變數是唯一可行解 |
+| Ticker 雙重白/黑名單 | 對帳單格式雜亂，純正則容易把 `USD`/`PDF`/`SEC` 誤判為股票 |
+| Yahoo v8 chart API 取代付費行情 | 免 key、夠用，個人專案不需要 tick-level 即時性 |
+
 ## 功能清單
 
 | 模組 | 說明 |
