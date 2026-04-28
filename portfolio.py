@@ -2,12 +2,21 @@
 持倉概覽：用 Yahoo Finance 抓現價，算市值、損益、損益%，格式化成 Telegram 區塊。
 """
 
+import re
 import requests
 from stock_news import get_stock_name
 
 
+# 台股代號：4-6 位數字 + 可選 1 個英文字母（槓桿/反向 ETF 如 00631L）
+_TW_TICKER_RE = re.compile(r'^\d{4,6}[A-Z]?$')
+
+
+def _is_tw_ticker(ticker):
+    return bool(_TW_TICKER_RE.fullmatch(ticker or ''))
+
+
 def _to_yahoo_symbol(ticker):
-    return f"{ticker}.TW" if ticker.isdigit() else ticker
+    return f"{ticker}.TW" if _is_tw_ticker(ticker) else ticker
 
 
 def get_live_price(ticker):
@@ -58,7 +67,7 @@ def build_portfolio_summary(portfolio):
     lines = ["<b>📊 持倉概覽</b>"]
     rows = []
     for ticker, p in portfolio.items():
-        is_us = not ticker.isdigit()
+        is_us = not _is_tw_ticker(ticker)
         shares = p['shares']
         avg_cost = p['avg_cost']
         current = get_live_price(ticker)

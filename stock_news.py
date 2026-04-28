@@ -36,6 +36,12 @@ STOCK_NAMES = {
 }
 
 _CJK_RE = re.compile(r'[一-鿿぀-ヿ]')
+# 台股代號：4-6 位數字 + 可選 1 個英文字母（槓桿/反向 ETF 如 00631L）
+_TW_TICKER_RE = re.compile(r'^\d{4,6}[A-Z]?$')
+
+
+def is_tw_ticker(stock_id):
+    return bool(_TW_TICKER_RE.fullmatch(stock_id or ''))
 
 
 def get_stock_name(stock_id):
@@ -80,7 +86,7 @@ def translate_titles(items):
 
 def get_yahoo_news(stock_id):
     try:
-        ticker = f"{stock_id}.TW" if stock_id.isdigit() else stock_id
+        ticker = f"{stock_id}.TW" if is_tw_ticker(stock_id) else stock_id
         url = f"https://finance.yahoo.com/rss/headline?s={ticker}"
         feed = feedparser.parse(url)
         news = []
@@ -189,8 +195,8 @@ def get_reddit_posts(stock_id, subreddit):
 
 
 def get_stocktwits_messages(stock_id):
-    """StockTwits 只支援英文 ticker，數字代號台股跳過。"""
-    if stock_id.isdigit():
+    """StockTwits 只支援英文 ticker，台股代號（含 ETF 如 00631L）跳過。"""
+    if is_tw_ticker(stock_id):
         return []
     headers = {"User-Agent": "Mozilla/5.0"}
     try:

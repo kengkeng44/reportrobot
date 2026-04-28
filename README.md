@@ -2,8 +2,8 @@
 
 每天台灣早上 8 點自動推播一份完整情報到 Telegram，內容包括：
 
-- 從 Gmail 擷取富邦複委託對帳單 PDF，解析買賣紀錄並累計持倉
-- Yahoo Finance 即時股價 + 損益計算
+- 從 Gmail 擷取富邦【複委託】美股/港股對帳單 PDF + 【台股】日成交回報 / 月對帳單，解密、解析、累計持倉
+- Yahoo Finance 即時股價 + 損益計算（同時支援台股 ETF 如 00631L）
 - 多來源股票新聞（Yahoo / 鉅亨網）+ 論壇討論（PTT / Reddit / StockTwits / Dcard）
 - 北台灣天氣預報（中央氣象署 + OpenWeatherMap）+ 溫度折線圖
 - AI 產業鏈分析（Claude）
@@ -16,8 +16,12 @@
 
 ### 技術亮點
 
-1. **Gmail 加密 PDF → 持倉狀態管線**
-   OAuth2 抓信 → `pikepdf` 用「身分證+生日」格式密碼解密 → `pdfplumber` 抽純文字 → 用「交易所代碼白名單 + ticker 黑名單」雙重防呆解析買賣紀錄（避免把 `USD`/`PDF`/`SEC` 誤判為股票）→ 累計成 `{ticker: {shares, avg_cost}}`。同時支援日對帳單與月對帳單兩種格式。
+1. **Gmail → 持倉狀態管線（雙市場支援）**
+   - **複委託（美股/港股）**：OAuth2 抓信 → `pikepdf` 用「身分證+生日」格式密碼解密 → `pdfplumber` 抽純文字 → 用「交易所代碼白名單 + ticker 黑名單」雙重防呆解析（避免把 `USD`/`PDF`/`SEC` 誤判為股票）
+   - **台股日成交回報**：純 email 內文（無附檔無密碼），用 regex 在整段文字上匹配，兼容 plain text 與 HTML table 兩種寄送格式
+   - **台股月對帳單**：自動辨識零股 vs 整股欄位差（零股「交易單位」即股數；整股則「張數 + 股數」兩欄並存），並用 `成交股數 × 成交價格 ≈ 成交金額` 反推驗證解析結果
+   - **雙 pass 對照**：先解析日報建立「證券名稱↔代號」對照表，再回頭把月對帳單只有名稱的紀錄回填正確 4-6 位代號（含槓桿 ETF 如 `00631L`）
+   - 最終累計成 `{ticker: {shares, avg_cost}}`，台美股共用同一份持倉結構
 
 2. **OAuth Token 雲端化**
    Railway 唯讀檔案系統無法寫回 `token.pickle`，解法是本機 OAuth 完成後將 token base64 編碼存進環境變數 `TOKEN_PICKLE_B64`。`_load_creds()` 優先讀環境變數、退回本機檔案，**同份程式碼支援本機開發與雲端部署**。
@@ -49,7 +53,7 @@
 
 | 模組 | 說明 |
 |---|---|
-| `gmail_reader.py` | 抓 Gmail 對帳單 PDF、用 pikepdf 解密、用 pdfplumber 抽交易明細，累計成 `{ticker: {shares, avg_cost}}` 持倉 |
+| `gmail_reader.py` | 抓 Gmail 對帳單，支援 4 種來源：複委託 PDF（pikepdf 解密 + pdfplumber 抽文字）、台股日成交回報（email 內文 regex）、台股月對帳單（PDF 或內文）；雙 pass 把名稱與 4-6 位代號對齊，累計成 `{ticker: {shares, avg_cost}}` |
 | `portfolio.py` | 用 Yahoo Finance v8 chart API 取現價，算市值與損益% |
 | `stock_news.py` | 多來源新聞與論壇爬蟲、英文標題 AI 翻譯、Claude 產業分析 |
 | `weather.py` | CWA F-D0047-071 鄉鎮預報 + F-C0032-001 備用、OWM 輔助、matplotlib 折線圖、Claude 整理報告 |
