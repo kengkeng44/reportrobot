@@ -13,7 +13,19 @@ from gmail_reader import get_portfolio_from_gmail
 from weather import get_weather_report
 from stock_news import get_stock_report
 from portfolio import build_portfolio_summary
-from telegram_sender import send_message, send_photo
+from telegram_sender import send_message as tg_send_message, send_photo as tg_send_photo
+from line_sender import send_message as line_send_message
+
+
+async def send_message(text):
+    """並送 Telegram + LINE（LINE 沒設環境變數時自動跳過）。"""
+    await tg_send_message(text)
+    await line_send_message(text)
+
+
+async def send_photo(image_path, caption=None):
+    """圖片只送 Telegram；LINE 不傳圖。"""
+    await tg_send_photo(image_path, caption)
 
 
 def _env_list(name):
