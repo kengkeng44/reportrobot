@@ -41,17 +41,21 @@ WEATHER_LOCATIONS = _env_list("WEATHER_LOCATIONS")
 
 # 嘗試使用中文字體
 def get_chinese_font():
-    """找到可用的中文字體"""
+    """找到可用的中文字體（fallback_to_default=False 才不會被 mpl 偷偷塞 DejaVu Sans）"""
     font_candidates = [
-        'Noto Sans CJK TC', 'Microsoft JhengHei', 'PingFang TC',
-        'WenQuanYi Micro Hei', 'SimHei', 'Arial Unicode MS'
+        'Noto Sans CJK TC', 'Noto Sans TC', 'Noto Sans CJK SC',
+        'Microsoft JhengHei', 'Microsoft YaHei',
+        'PingFang TC', 'WenQuanYi Micro Hei', 'SimHei', 'Arial Unicode MS',
     ]
     for font_name in font_candidates:
         try:
-            font_path = fm.findfont(fm.FontProperties(family=font_name))
-            if font_path and 'fallback' not in font_path.lower():
+            font_path = fm.findfont(
+                fm.FontProperties(family=font_name),
+                fallback_to_default=False,
+            )
+            if font_path:
                 return fm.FontProperties(fname=font_path)
-        except:
+        except (ValueError, RuntimeError):
             continue
     return fm.FontProperties()
 
@@ -223,11 +227,11 @@ def generate_temp_chart(cwa_data):
         return None
 
     BG = '#0f1424'
-    fig, ax = plt.subplots(figsize=(11, 4.8), dpi=120)
+    fig, ax = plt.subplots(figsize=(11, 5.4), dpi=120)
     fig.patch.set_facecolor(BG)
     ax.set_facecolor(BG)
 
-    # colormap 自動配色（地點數不固定）
+    # colormap 自動配色（地點數不固定）— 'cool' 兩端為青/品紅，對比夠
     cmap = plt.get_cmap('cool')
     palette = [cmap(i / max(1, len(series) - 1)) for i in range(len(series))]
 
@@ -247,31 +251,39 @@ def generate_temp_chart(cwa_data):
     for (location, times, values), color in zip(series, palette):
         n = min(len(values), len(x_idx))
         ax.plot(x_idx[:n], values[:n], marker='o', color=color,
-                linewidth=2.6, markersize=8, label=location, zorder=3)
+                linewidth=3.0, markersize=10, label=location, zorder=3)
         for i, v in enumerate(values[:n]):
             ax.annotate(f'{v:.0f}°', (i, v), textcoords="offset points",
-                        xytext=(0, 11), ha='center', fontsize=10,
-                        color=color, fontproperties=font_prop, zorder=4)
+                        xytext=(0, 13), ha='center', fontsize=12,
+                        fontweight='bold', color=color,
+                        fontproperties=font_prop, zorder=4)
 
     all_values = [v for _, _, vs in series for v in vs]
     ymin, ymax = min(all_values), max(all_values)
-    ax.set_ylim(ymin - 2.5, ymax + 3.5)
+    ax.set_ylim(ymin - 2.5, ymax + 4.0)
 
     ax.set_xticks(x_idx)
-    ax.set_xticklabels(x_labels, fontproperties=font_prop, fontsize=9, color='#bbb')
+    ax.set_xticklabels(x_labels, fontproperties=font_prop, fontsize=13,
+                       fontweight='bold', color='#f0f0f0')
 
-    ax.set_title('未來 24 小時氣溫', fontsize=15, color='white',
-                 pad=14, fontproperties=font_prop)
-    ax.set_ylabel('氣溫 (°C)', fontsize=11, color='#aaa', fontproperties=font_prop)
+    ax.set_title('未來 24 小時氣溫', fontsize=17, color='white',
+                 pad=16, fontweight='bold', fontproperties=font_prop)
+    ax.set_ylabel('氣溫 (°C)', fontsize=12, color='#bbb', fontproperties=font_prop)
 
-    ax.tick_params(colors='#888', labelsize=9)
+    ax.tick_params(axis='x', colors='#f0f0f0', labelsize=13, pad=8)
+    ax.tick_params(axis='y', colors='#888', labelsize=10)
     for s in ('top', 'right'):
         ax.spines[s].set_visible(False)
     for s in ('bottom', 'left'):
         ax.spines[s].set_color('#333')
     ax.grid(True, alpha=0.18, color='white', linestyle='--', linewidth=0.5)
-    ax.legend(prop=font_prop, facecolor=BG, edgecolor='#333',
-              labelcolor='white', fontsize=10, loc='upper right')
+    leg = ax.legend(prop=font_prop, facecolor=BG, edgecolor='#555',
+                    labelcolor='white', fontsize=14, loc='upper right',
+                    markerscale=1.4, handlelength=2.2, borderpad=0.8,
+                    labelspacing=0.6)
+    leg.get_frame().set_linewidth(1.2)
+    for text in leg.get_texts():
+        text.set_fontweight('bold')
 
     plt.tight_layout()
     plt.savefig(chart_path, facecolor=BG, bbox_inches='tight')

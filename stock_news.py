@@ -281,15 +281,24 @@ def format_forum_html(articles, limit=5):
             icon = "👎"
         else:
             icon = "💬"
-        sub = a.get('subreddit')
-        if sub:
-            comments = a.get('comments', 0)
-            meta = f"[{heat}↑ {comments}💬]"
-            prefix = f"r/{sub} "
+
+        source = a.get('source')
+        if source:
+            # 英文論壇合併區塊：標 r/<sub> 或 StockTwits + score↑/comments💬
+            comments = a.get('comments') or 0
+            meta = f"[{heat}↑" + (f" {comments}💬" if comments else "") + "]"
+            prefix = f"{source} "
         else:
+            # PTT / Dcard 等中文論壇：簡單標 [heat]
             meta = f"[{heat}]"
             prefix = ""
-        lines.append(f'  {icon} {meta} {prefix}<a href="{a["link"]}">{a["title"]}</a>')
+
+        # 標題：英文有翻譯就在後面附 (中文)
+        title = a['title']
+        zh = a.get('title_zh')
+        display = f"{title}（{zh}）" if zh else title
+
+        lines.append(f'  {icon} {meta} {prefix}<a href="{a["link"]}">{display}</a>')
     return "\n".join(lines)
 
 
@@ -324,14 +333,22 @@ def get_stock_report(stock_id):
     ptt_articles = get_ptt_articles(stock_id)
     reddit_stocks = get_reddit_posts(stock_id, "stocks")
     reddit_wsb = get_reddit_posts(stock_id, "wallstreetbets")
-    # 兩個 subreddit 合併，依綜合熱度（score + 留言數）排序取前 3
-    reddit_top = sorted(
-        reddit_stocks + reddit_wsb,
+    stocktwits_msgs = get_stocktwits_messages(stock_id)
+    dcard_posts = get_dcard_posts(stock_id)
+
+    # ── 英文論壇（Reddit + StockTwits）合併，按綜合熱度（score+留言）取前 3 ──
+    for p in reddit_stocks + reddit_wsb:
+        p['source'] = f"r/{p.get('subreddit', 'reddit')}"
+    for m in stocktwits_msgs:
+        m['source'] = 'StockTwits'
+        m.setdefault('comments', 0)
+    english_forum_top = sorted(
+        reddit_stocks + reddit_wsb + stocktwits_msgs,
         key=lambda x: int(x.get('heat', 0)) + int(x.get('comments', 0)),
         reverse=True,
     )[:3]
-    stocktwits_msgs = get_stocktwits_messages(stock_id)
-    dcard_posts = get_dcard_posts(stock_id)
+    # 把英文標題翻成中文（直接在 dict 上補 title_zh 欄位）
+    translate_titles(english_forum_top)
 
     news_titles = [f"{n['title']}（{n['title_zh']}）" if n.get('title_zh') else n['title']
                    for n in yahoo_news + cnyes_news]
@@ -340,10 +357,10 @@ def get_stock_report(stock_id):
     forum_lines = []
     forum_lines += [f"[PTT {a['heat']}推] {a['title']}" for a in ptt_articles]
     forum_lines += [
-        f"[r/{a.get('subreddit','reddit')} {a['heat']}↑/{a.get('comments',0)}💬] {a['title']}"
-        for a in reddit_top
+        f"[{a.get('source','EN')} {a['heat']}↑/{a.get('comments',0)}💬] "
+        f"{a['title']}" + (f"（{a['title_zh']}）" if a.get('title_zh') else "")
+        for a in english_forum_top
     ]
-    forum_lines += [f"[StockTwits {a['heat']}讚] {a['title']}" for a in stocktwits_msgs]
     forum_lines += [f"[Dcard {a['heat']}熱] {a['title']}" for a in dcard_posts]
     forum_summary = "\n".join(forum_lines) or "暫無相關討論"
 
@@ -363,8 +380,7 @@ def get_stock_report(stock_id):
 
     forum_specs = [
         ("🗣️ PTT Stock", "按推文數", ptt_articles, 5),
-        ("👽 Reddit", "綜合熱度（score + 留言）", reddit_top, 3),
-        ("💬 StockTwits", "按讚數", stocktwits_msgs, 5),
+        ("🌐 英文論壇", "Reddit + StockTwits 綜合熱度", english_forum_top, 3),
         ("🎴 Dcard 股票版", "按熱度", dcard_posts, 5),
     ]
     for title, hint, items, limit in forum_specs:
