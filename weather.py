@@ -14,7 +14,7 @@ import matplotlib
 matplotlib.use('Agg')  # 無視窗環境
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
-from datetime import datetime
+from datetime import datetime, timedelta
 from prompts import WEATHER_PROMPT
 
 
@@ -197,50 +197,69 @@ def _parse_cwa_time(time_str):
         return None
 
 
+def _pop_for(point_time, pop_data, window_hours=12):
+    """給一個 datetime，從 12 小時降雨機率資料找對應段；找不到回 None。"""
+    if not point_time or not pop_data:
+        return None
+    for p in pop_data:
+        start = _parse_cwa_time(p.get('time', ''))
+        if start is None:
+            continue
+        end = start + timedelta(hours=window_hours)
+        if start <= point_time < end:
+            try:
+                return int(float(p.get('value')))
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
 def generate_temp_chart(cwa_data):
-    """畫未來 24 小時氣溫折線圖（CWA 逐 3 小時，共 8 個點），回傳圖片路徑。"""
+    """畫淡水區未來 24 小時氣溫 + 降雨機率，雙 y 軸；回傳圖片路徑。"""
     chart_path = os.path.join(tempfile.gettempdir(), 'weather_chart.png')
     font_prop = get_chinese_font()
 
     POINTS = 8  # 8 × 3hr = 24hr
 
-    series = []  # [(location, [datetime,...], [°C,...]), ...]
-    for location, elements in cwa_data.items():
-        temps = elements.get('平均溫度') or elements.get('溫度') or elements.get('T') or []
-        if not temps:
-            continue
-        times, values = [], []
-        for t in temps[:POINTS]:
-            dt = _parse_cwa_time(t.get('time', ''))
-            try:
-                v = float(t.get('value'))
-            except (TypeError, ValueError):
-                continue
-            if dt is None:
-                continue
-            times.append(dt)
-            values.append(v)
-        if times and values:
-            series.append((location, times, values))
+    # 只畫一個地點：優先淡水區，沒有就拿第一個有資料的
+    target = '淡水區' if '淡水區' in cwa_data else next(iter(cwa_data), None)
+    if not target:
+        return None
+    elements = cwa_data[target]
 
-    if not series:
+    temps = elements.get('平均溫度') or elements.get('溫度') or elements.get('T') or []
+    if not temps:
+        return None
+    pop_data = elements.get('12小時降雨機率') or elements.get('PoP12h') or []
+
+    times, values = [], []
+    for t in temps[:POINTS]:
+        dt = _parse_cwa_time(t.get('time', ''))
+        try:
+            v = float(t.get('value'))
+        except (TypeError, ValueError):
+            continue
+        if dt is None:
+            continue
+        times.append(dt)
+        values.append(v)
+    if not times:
         return None
 
+    pop_series = [_pop_for(dt, pop_data) for dt in times]
+
     BG = '#0f1424'
+    TEMP_COLOR = '#00d2ff'   # 青色（氣溫線）
+    POP_COLOR = '#3a7bd5'    # 藍色（降雨機率柱）
+
     fig, ax = plt.subplots(figsize=(11, 5.4), dpi=120)
     fig.patch.set_facecolor(BG)
     ax.set_facecolor(BG)
 
-    # colormap 自動配色（地點數不固定）— 'cool' 兩端為青/品紅，對比夠
-    cmap = plt.get_cmap('cool')
-    palette = [cmap(i / max(1, len(series) - 1)) for i in range(len(series))]
-
-    # x 軸 label 用第一條時間序列（同一個 API、各地時刻一致）
-    ref_times = series[0][1]
-    x_idx = list(range(len(ref_times)))
+    x_idx = list(range(len(times)))
     x_labels = []
     last_day = None
-    for dt in ref_times:
+    for dt in times:
         day = dt.strftime('%m/%d')
         if day != last_day:
             x_labels.append(f"{day}\n{dt.strftime('%H:%M')}")
@@ -248,39 +267,64 @@ def generate_temp_chart(cwa_data):
         else:
             x_labels.append(dt.strftime('%H:%M'))
 
-    for (location, times, values), color in zip(series, palette):
-        n = min(len(values), len(x_idx))
-        ax.plot(x_idx[:n], values[:n], marker='o', color=color,
-                linewidth=3.0, markersize=10, label=location, zorder=3)
-        for i, v in enumerate(values[:n]):
-            ax.annotate(f'{v:.0f}°', (i, v), textcoords="offset points",
-                        xytext=(0, 13), ha='center', fontsize=12,
-                        fontweight='bold', color=color,
-                        fontproperties=font_prop, zorder=4)
+    # 降雨機率：第二 y 軸，半透明柱狀圖（在氣溫線下層）
+    ax2 = ax.twinx()
+    bar_x = [i for i, p in enumerate(pop_series) if p is not None]
+    bar_h = [pop_series[i] for i in bar_x]
+    if bar_x:
+        ax2.bar(bar_x, bar_h, width=0.85, color=POP_COLOR, alpha=0.35,
+                label='降雨機率', zorder=1)
+        for i, p in zip(bar_x, bar_h):
+            if p > 0:
+                ax2.annotate(f'{p}%', (i, p), textcoords="offset points",
+                             xytext=(0, 4), ha='center', fontsize=10,
+                             fontweight='bold', color='#9ec5ff',
+                             fontproperties=font_prop, zorder=2)
+    ax2.set_ylim(0, 110)  # 多留 10% 給數字標籤
+    ax2.set_ylabel('降雨機率 (%)', fontsize=12, color='#9ec5ff',
+                   fontproperties=font_prop)
+    ax2.tick_params(axis='y', colors='#9ec5ff', labelsize=10)
+    ax2.spines['top'].set_visible(False)
+    ax2.spines['right'].set_color('#333')
+    ax2.grid(False)
 
-    all_values = [v for _, _, vs in series for v in vs]
-    ymin, ymax = min(all_values), max(all_values)
+    # 氣溫：主 y 軸折線
+    ax.plot(x_idx, values, marker='o', color=TEMP_COLOR,
+            linewidth=3.2, markersize=11, label=f'{target} 氣溫', zorder=3)
+    for i, v in enumerate(values):
+        ax.annotate(f'{v:.0f}°', (i, v), textcoords="offset points",
+                    xytext=(0, 13), ha='center', fontsize=12,
+                    fontweight='bold', color=TEMP_COLOR,
+                    fontproperties=font_prop, zorder=4)
+
+    ymin, ymax = min(values), max(values)
     ax.set_ylim(ymin - 2.5, ymax + 4.0)
 
     ax.set_xticks(x_idx)
     ax.set_xticklabels(x_labels, fontproperties=font_prop, fontsize=13,
                        fontweight='bold', color='#f0f0f0')
 
-    ax.set_title('未來 24 小時氣溫', fontsize=17, color='white',
-                 pad=16, fontweight='bold', fontproperties=font_prop)
-    ax.set_ylabel('氣溫 (°C)', fontsize=12, color='#bbb', fontproperties=font_prop)
+    ax.set_title(f'{target} 未來 24 小時氣溫與降雨機率',
+                 fontsize=17, color='white', pad=16,
+                 fontweight='bold', fontproperties=font_prop)
+    ax.set_ylabel('氣溫 (°C)', fontsize=12, color=TEMP_COLOR,
+                  fontproperties=font_prop)
 
     ax.tick_params(axis='x', colors='#f0f0f0', labelsize=13, pad=8)
-    ax.tick_params(axis='y', colors='#888', labelsize=10)
-    for s in ('top', 'right'):
+    ax.tick_params(axis='y', colors=TEMP_COLOR, labelsize=10)
+    for s in ('top',):
         ax.spines[s].set_visible(False)
     for s in ('bottom', 'left'):
         ax.spines[s].set_color('#333')
     ax.grid(True, alpha=0.18, color='white', linestyle='--', linewidth=0.5)
-    leg = ax.legend(prop=font_prop, facecolor=BG, edgecolor='#555',
-                    labelcolor='white', fontsize=14, loc='upper right',
-                    markerscale=1.4, handlelength=2.2, borderpad=0.8,
-                    labelspacing=0.6)
+
+    # 合併兩軸 legend
+    h1, l1 = ax.get_legend_handles_labels()
+    h2, l2 = ax2.get_legend_handles_labels()
+    leg = ax.legend(h1 + h2, l1 + l2, prop=font_prop, facecolor=BG,
+                    edgecolor='#555', labelcolor='white', fontsize=14,
+                    loc='upper right', markerscale=1.3,
+                    handlelength=2.2, borderpad=0.8, labelspacing=0.6)
     leg.get_frame().set_linewidth(1.2)
     for text in leg.get_texts():
         text.set_fontweight('bold')
@@ -289,6 +333,44 @@ def generate_temp_chart(cwa_data):
     plt.savefig(chart_path, facecolor=BG, bbox_inches='tight')
     plt.close()
     return chart_path
+
+
+def get_local_events(locations):
+    """用 Anthropic web_search server tool 查近期當地活動，最多 3 個或回 '無'。"""
+    if not locations:
+        return ""
+    today = datetime.now().strftime("%Y-%m-%d")
+    locs = "、".join(locations)
+    prompt = (
+        f"今天是 {today}。請用網路搜尋查詢「{locs}」（位於新北市）"
+        f"今天起一週內舉辦的重要在地活動，例如節慶、市集、表演、展覽、廟會、馬拉松等。\n\n"
+        f"輸出規則（純文字、繁體中文、不要 Markdown）：\n"
+        f"- 找到至少 1 個 → 最多列 3 個，每行格式：`• 活動名稱｜日期｜地點`\n"
+        f"- 完全沒搜到 → 只輸出兩個字：「無」\n"
+        f"- 不要加開場白或結語，直接輸出活動列表或「無」"
+    )
+    try:
+        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        message = client.messages.create(
+            model="claude-sonnet-4-5",
+            max_tokens=600,
+            tools=[{
+                "type": "web_search_20250305",
+                "name": "web_search",
+                "max_uses": 3,
+            }],
+            messages=[{"role": "user", "content": prompt}],
+        )
+        # web_search 是 server-side tool；回傳 content 含多個 block，取最後一個 text
+        text = ""
+        for block in message.content:
+            if getattr(block, 'type', None) == 'text':
+                text = block.text
+        return text.strip()
+    except Exception as e:
+        print(f"近期活動查詢失敗：{e}")
+        return ""
+
 
 def get_weather_report():
     """取得完整天氣報告（文字 + 圖片路徑）"""
@@ -332,5 +414,10 @@ def get_weather_report():
     except Exception as e:
         print(f"AI 天氣整理失敗：{e}")
         weather_text = "天氣資料暫時無法取得"
+
+    # 接在「今日重點提醒」之後加「📅 近期活動」
+    events = get_local_events(WEATHER_LOCATIONS)
+    if events:
+        weather_text = f"{weather_text}\n\n📅 近期活動\n{events}"
 
     return weather_text, chart_path
