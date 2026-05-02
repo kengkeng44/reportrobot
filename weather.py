@@ -182,61 +182,99 @@ def get_owm_weather():
             print(f"OWM 失敗 ({name})：{e}")
     return results
 
+def _parse_cwa_time(time_str):
+    """CWA 通常給帶 +08:00 的本地時間；都當本地時間解析。"""
+    if not time_str:
+        return None
+    s = time_str.replace('Z', '').split('+')[0].strip()
+    try:
+        return datetime.fromisoformat(s)
+    except Exception:
+        return None
+
+
 def generate_temp_chart(cwa_data):
-    """畫溫度折線圖，回傳圖片路徑"""
+    """畫未來 24 小時氣溫折線圖（CWA 逐 3 小時，共 8 個點），回傳圖片路徑。"""
     chart_path = os.path.join(tempfile.gettempdir(), 'weather_chart.png')
     font_prop = get_chinese_font()
 
-    fig, ax = plt.subplots(figsize=(10, 4), dpi=100)
-    fig.patch.set_facecolor('#1a1a2e')
-    ax.set_facecolor('#1a1a2e')
+    POINTS = 8  # 8 × 3hr = 24hr
 
-    colors = {'淡水區': '#00d2ff', '金山區': '#ff6b6b'}
-
+    series = []  # [(location, [datetime,...], [°C,...]), ...]
     for location, elements in cwa_data.items():
-        # 主 API 回傳「平均溫度」；舊版是「溫度」；備用 API 沒有單點溫度
         temps = elements.get('平均溫度') or elements.get('溫度') or elements.get('T') or []
         if not temps:
             continue
-
-        hours = []
-        values = []
-        for t in temps[:24]:
+        times, values = [], []
+        for t in temps[:POINTS]:
+            dt = _parse_cwa_time(t.get('time', ''))
             try:
-                time_str = t['time']
-                dt = datetime.fromisoformat(time_str.replace('Z', '+00:00'))
-                hours.append(dt.strftime('%H:%M'))
-                values.append(float(t['value']))
-            except:
+                v = float(t.get('value'))
+            except (TypeError, ValueError):
                 continue
+            if dt is None:
+                continue
+            times.append(dt)
+            values.append(v)
+        if times and values:
+            series.append((location, times, values))
 
-        if hours and values:
-            color = colors.get(location, '#ffffff')
-            ax.plot(hours, values, marker='o', color=color,
-                    linewidth=2.5, markersize=6, label=location)
-            # 標注溫度數值
-            for i, (h, v) in enumerate(zip(hours, values)):
-                ax.annotate(f'{v:.0f}°', (h, v), textcoords="offset points",
-                           xytext=(0, 12), ha='center', fontsize=9,
-                           color=color, fontproperties=font_prop)
+    if not series:
+        return None
 
-    ax.set_title('Today Temperature', fontsize=16,
-                color='white', pad=15, fontproperties=font_prop)
-    ax.set_xlabel('Time', fontsize=11, color='#aaa', fontproperties=font_prop)
-    ax.set_ylabel('Temp (°C)', fontsize=11, color='#aaa', fontproperties=font_prop)
+    BG = '#0f1424'
+    fig, ax = plt.subplots(figsize=(11, 4.8), dpi=120)
+    fig.patch.set_facecolor(BG)
+    ax.set_facecolor(BG)
+
+    # colormap 自動配色（地點數不固定）
+    cmap = plt.get_cmap('cool')
+    palette = [cmap(i / max(1, len(series) - 1)) for i in range(len(series))]
+
+    # x 軸 label 用第一條時間序列（同一個 API、各地時刻一致）
+    ref_times = series[0][1]
+    x_idx = list(range(len(ref_times)))
+    x_labels = []
+    last_day = None
+    for dt in ref_times:
+        day = dt.strftime('%m/%d')
+        if day != last_day:
+            x_labels.append(f"{day}\n{dt.strftime('%H:%M')}")
+            last_day = day
+        else:
+            x_labels.append(dt.strftime('%H:%M'))
+
+    for (location, times, values), color in zip(series, palette):
+        n = min(len(values), len(x_idx))
+        ax.plot(x_idx[:n], values[:n], marker='o', color=color,
+                linewidth=2.6, markersize=8, label=location, zorder=3)
+        for i, v in enumerate(values[:n]):
+            ax.annotate(f'{v:.0f}°', (i, v), textcoords="offset points",
+                        xytext=(0, 11), ha='center', fontsize=10,
+                        color=color, fontproperties=font_prop, zorder=4)
+
+    all_values = [v for _, _, vs in series for v in vs]
+    ymin, ymax = min(all_values), max(all_values)
+    ax.set_ylim(ymin - 2.5, ymax + 3.5)
+
+    ax.set_xticks(x_idx)
+    ax.set_xticklabels(x_labels, fontproperties=font_prop, fontsize=9, color='#bbb')
+
+    ax.set_title('未來 24 小時氣溫', fontsize=15, color='white',
+                 pad=14, fontproperties=font_prop)
+    ax.set_ylabel('氣溫 (°C)', fontsize=11, color='#aaa', fontproperties=font_prop)
 
     ax.tick_params(colors='#888', labelsize=9)
-    ax.spines['bottom'].set_color('#333')
-    ax.spines['left'].set_color('#333')
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
-    ax.grid(True, alpha=0.15, color='white')
-    ax.legend(prop=font_prop, facecolor='#1a1a2e', edgecolor='#333',
-              labelcolor='white', fontsize=10)
+    for s in ('top', 'right'):
+        ax.spines[s].set_visible(False)
+    for s in ('bottom', 'left'):
+        ax.spines[s].set_color('#333')
+    ax.grid(True, alpha=0.18, color='white', linestyle='--', linewidth=0.5)
+    ax.legend(prop=font_prop, facecolor=BG, edgecolor='#333',
+              labelcolor='white', fontsize=10, loc='upper right')
 
-    plt.xticks(rotation=45)
     plt.tight_layout()
-    plt.savefig(chart_path, facecolor='#1a1a2e', bbox_inches='tight')
+    plt.savefig(chart_path, facecolor=BG, bbox_inches='tight')
     plt.close()
     return chart_path
 

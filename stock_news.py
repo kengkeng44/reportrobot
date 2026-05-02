@@ -186,8 +186,9 @@ def get_reddit_posts(stock_id, subreddit):
                 "link": f"https://www.reddit.com{d.get('permalink', '')}",
                 "heat": int(d.get('score', 0)),
                 "comments": int(d.get('num_comments', 0)),
+                "subreddit": subreddit,
             })
-        posts.sort(key=lambda x: x['heat'], reverse=True)
+        posts.sort(key=lambda x: x['heat'] + x['comments'], reverse=True)
         return posts[:5]
     except Exception as e:
         print(f"Reddit r/{subreddit} 爬取失敗：{e}")
@@ -266,11 +267,11 @@ def format_news_html(news_list):
     return "\n".join(lines)
 
 
-def format_forum_html(articles):
+def format_forum_html(articles, limit=5):
     if not articles:
         return ""
     lines = []
-    for a in articles[:5]:
+    for a in articles[:limit]:
         heat = a['heat']
         if heat >= 50:
             icon = "🔥"
@@ -280,7 +281,15 @@ def format_forum_html(articles):
             icon = "👎"
         else:
             icon = "💬"
-        lines.append(f'  {icon} [{heat}] <a href="{a["link"]}">{a["title"]}</a>')
+        sub = a.get('subreddit')
+        if sub:
+            comments = a.get('comments', 0)
+            meta = f"[{heat}↑ {comments}💬]"
+            prefix = f"r/{sub} "
+        else:
+            meta = f"[{heat}]"
+            prefix = ""
+        lines.append(f'  {icon} {meta} {prefix}<a href="{a["link"]}">{a["title"]}</a>')
     return "\n".join(lines)
 
 
@@ -315,6 +324,12 @@ def get_stock_report(stock_id):
     ptt_articles = get_ptt_articles(stock_id)
     reddit_stocks = get_reddit_posts(stock_id, "stocks")
     reddit_wsb = get_reddit_posts(stock_id, "wallstreetbets")
+    # 兩個 subreddit 合併，依綜合熱度（score + 留言數）排序取前 3
+    reddit_top = sorted(
+        reddit_stocks + reddit_wsb,
+        key=lambda x: int(x.get('heat', 0)) + int(x.get('comments', 0)),
+        reverse=True,
+    )[:3]
     stocktwits_msgs = get_stocktwits_messages(stock_id)
     dcard_posts = get_dcard_posts(stock_id)
 
@@ -324,8 +339,10 @@ def get_stock_report(stock_id):
 
     forum_lines = []
     forum_lines += [f"[PTT {a['heat']}推] {a['title']}" for a in ptt_articles]
-    forum_lines += [f"[Reddit/stocks {a['heat']}分] {a['title']}" for a in reddit_stocks]
-    forum_lines += [f"[r/WSB {a['heat']}分] {a['title']}" for a in reddit_wsb]
+    forum_lines += [
+        f"[r/{a.get('subreddit','reddit')} {a['heat']}↑/{a.get('comments',0)}💬] {a['title']}"
+        for a in reddit_top
+    ]
     forum_lines += [f"[StockTwits {a['heat']}讚] {a['title']}" for a in stocktwits_msgs]
     forum_lines += [f"[Dcard {a['heat']}熱] {a['title']}" for a in dcard_posts]
     forum_summary = "\n".join(forum_lines) or "暫無相關討論"
@@ -345,18 +362,17 @@ def get_stock_report(stock_id):
         sections.append("<b>📰 最新新聞</b>\n" + "\n\n".join(news_blocks))
 
     forum_specs = [
-        ("🗣️ PTT Stock", "按推文數", ptt_articles),
-        ("👽 Reddit r/stocks", "按 score", reddit_stocks),
-        ("🚀 Reddit r/wallstreetbets", "按 score", reddit_wsb),
-        ("💬 StockTwits", "按讚數", stocktwits_msgs),
-        ("🎴 Dcard 股票版", "按熱度", dcard_posts),
+        ("🗣️ PTT Stock", "按推文數", ptt_articles, 5),
+        ("👽 Reddit", "綜合熱度（score + 留言）", reddit_top, 3),
+        ("💬 StockTwits", "按讚數", stocktwits_msgs, 5),
+        ("🎴 Dcard 股票版", "按熱度", dcard_posts, 5),
     ]
-    for title, hint, items in forum_specs:
-        body = format_forum_html(items)
+    for title, hint, items, limit in forum_specs:
+        body = format_forum_html(items, limit=limit)
         if body:
             sections.append(f"<b>{title}</b>（{hint}）\n{body}")
 
     if ai_analysis and ai_analysis.strip():
-        sections.append(f"<b>🤖 AI 產業分析</b>\n{ai_analysis}")
+        sections.append(f"<b>🤖 新聞 + 論壇解讀</b>\n{ai_analysis}")
 
     return "\n\n".join(sections) + "\n"
