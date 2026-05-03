@@ -8,6 +8,7 @@
 import json
 import os
 import re
+import time
 import requests
 import feedparser
 import anthropic
@@ -439,6 +440,70 @@ def get_security_intro(stock_id, name):
         return ""
 
 
+def _is_tw_etf(stock_id):
+    """台股 ETF 代號慣例：00 開頭。0050 / 00631L / 00878 都符合。"""
+    return is_tw_ticker(stock_id) and stock_id.startswith("00")
+
+
+# 基本面摘要 cache：{stock_id: (timestamp, text)}
+_FUNDAMENTALS_CACHE = {}
+_FUNDAMENTALS_TTL = 3600 * 6  # 6 小時，台股月營收每月才更新一次
+
+
+def get_fundamentals_block(stock_id, name):
+    """台股個股基本面摘要：月營收 / 季 EPS / 業務動態。
+    只對台股個股（非 ETF），AI 用 sonnet web_search 抓，6 小時 cache。
+    找不到 / 美股 / ETF 一律回空字串。"""
+    if not is_tw_ticker(stock_id) or _is_tw_etf(stock_id):
+        return ""
+    now = time.time()
+    cached = _FUNDAMENTALS_CACHE.get(stock_id)
+    if cached and now - cached[0] < _FUNDAMENTALS_TTL:
+        return cached[1]
+
+    label = name if name and name != stock_id else stock_id
+    prompt = (
+        f"請用網路搜尋整理台股「{stock_id} {label}」的最新基本面摘要。\n\n"
+        f"輸出格式（純文字繁體中文，不要 Markdown，每段一行 emoji 開頭）：\n"
+        f"📈 營收：[最近月營收金額 + 月增/年增百分比]\n"
+        f"💰 獲利：[最近季 EPS 金額 + 季增/年增百分比]\n"
+        f"🔄 業務動態：[一句話說最近策略、轉型、產品線]\n"
+        f"📌 觀察重點：\n"
+        f"  ✅ [正面點]\n"
+        f"  ⚠️ [風險點]\n\n"
+        f"嚴格規則：\n"
+        f"- 4 個區塊各 1-2 行\n"
+        f"- 觀察重點 2-3 個 bullet，✅ 正面 / ⚠️ 風險 / 🔄 中性 開頭\n"
+        f"- 找不到該區塊資料就直接 skip 那段，不要寫「無資料」\n"
+        f"- 全部 4 段都找不到就只輸出兩個字「無」\n"
+        f"- 禁止開場白與結語，第一個字必須是 emoji 或「無」"
+    )
+    try:
+        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        msg = client.messages.create(
+            model="claude-sonnet-4-5",
+            max_tokens=700,
+            tools=[{
+                "type": "web_search_20250305",
+                "name": "web_search",
+                "max_uses": 3,
+            }],
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text = ""
+        for block in msg.content:
+            if getattr(block, "type", None) == "text":
+                text = block.text
+        text = text.strip()
+        if text in ("無", "無。", "無資料", ""):
+            text = ""
+        _FUNDAMENTALS_CACHE[stock_id] = (now, text)
+        return text
+    except Exception as e:
+        print(f"基本面整理失敗 {stock_id}: {e}")
+        return ""
+
+
 def get_etf_top_holdings(stock_id, top_n=5):
     """ETF 前 N 大持股（透過 yfinance.funds_data.top_holdings）。
     回 list of {symbol, name, weight}；不是 ETF 或新上市無歷史資料就回 None。"""
@@ -572,6 +637,11 @@ def get_stock_report(stock_id):
     holdings = get_etf_top_holdings(stock_id)
     if holdings:
         sections.append(f"<b>📦 ETF 前五大持股</b>\n{_format_holdings_block(holdings)}")
+
+    # 基本面分析（只對台股個股，AI web_search，6 小時 cache）
+    fundamentals = get_fundamentals_block(stock_id, stock_name)
+    if fundamentals:
+        sections.append(f"<b>📊 基本面分析</b>\n{fundamentals}")
 
     news_blocks = []
     yahoo_block = format_news_html(yahoo_news)
