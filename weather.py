@@ -335,19 +335,43 @@ def generate_temp_chart(cwa_data):
     return chart_path
 
 
+def _strip_to_bullets(text):
+    """只留 • / ・ / - / * 開頭的 bullet 行；沒 bullet 一律回空字串
+    （AI 回「無」、開場白、結語、純敘述等通通視為「沒有活動」）。"""
+    if not text:
+        return ""
+    lines = [l.rstrip() for l in text.splitlines()]
+    bullets = []
+    started = False
+    for line in lines:
+        stripped = line.lstrip()
+        if stripped.startswith(("•", "・", "-", "*")):
+            bullets.append(stripped)
+            started = True
+        elif started:
+            # 已開始列 bullet 後遇到非 bullet 行 → 視為結語，停止
+            break
+    return "\n".join(bullets)
+
+
 def get_local_events(locations):
-    """用 Anthropic web_search server tool 查近期當地活動，最多 3 個或回 '無'。"""
+    """用 Anthropic web_search 查未來 7 天當地活動，最多 3 個或回 '無'。"""
     if not locations:
         return ""
     today = datetime.now().strftime("%Y-%m-%d")
     locs = "、".join(locations)
     prompt = (
-        f"今天是 {today}。請用網路搜尋查詢「{locs}」（位於新北市）"
-        f"今天起一週內舉辦的重要在地活動，例如節慶、市集、表演、展覽、廟會、馬拉松等。\n\n"
-        f"輸出規則（純文字、繁體中文、不要 Markdown）：\n"
-        f"- 找到至少 1 個 → 最多列 3 個，每行格式：`• 活動名稱｜日期｜地點`\n"
-        f"- 完全沒搜到 → 只輸出兩個字：「無」\n"
-        f"- 不要加開場白或結語，直接輸出活動列表或「無」"
+        f"今天是 {today}（台北時間）。\n"
+        f"請用網路搜尋「{locs}」（位於新北市）今天 {today} 起未來 7 天內仍會舉辦的活動。\n"
+        f"活動類型包含節慶、市集、表演、展覽、廟會、馬拉松等。\n\n"
+        f"嚴格規則（必遵守）：\n"
+        f"1. 只列出「{today} 當日或之後」舉辦的活動。已結束（結束日早於 {today}）的活動絕對不能列。\n"
+        f"2. 第一個字元必須是「•」或「無」。禁止任何開場白、解釋過程、引用敘述。\n"
+        f"3. 找不到符合「未來 7 天」的活動 → 只輸出兩個字：「無」（不加句點、不加其他字）。\n"
+        f"4. 找到的話最多 3 個，每個一行，格式：\n"
+        f"   • 活動名稱｜日期（YYYY-MM-DD 或 MM/DD-MM/DD）｜地點｜URL\n"
+        f"   URL 用搜尋取得的官方/新聞連結；找不到可靠連結就省略 URL 欄但保留前面三欄。\n"
+        f"5. 禁止結語（不要寫「希望對你有幫助」「請查證」等）。"
     )
     try:
         client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
@@ -361,12 +385,12 @@ def get_local_events(locations):
             }],
             messages=[{"role": "user", "content": prompt}],
         )
-        # web_search 是 server-side tool；回傳 content 含多個 block，取最後一個 text
+        # web_search 是 server-side tool；content 含多個 block，取最後一個 text
         text = ""
         for block in message.content:
             if getattr(block, 'type', None) == 'text':
                 text = block.text
-        return text.strip()
+        return _strip_to_bullets(text.strip())
     except Exception as e:
         print(f"近期活動查詢失敗：{e}")
         return ""
