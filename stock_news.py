@@ -341,7 +341,17 @@ def get_ai_analysis(stock_id, news_summary, forum_summary):
 
 
 def _to_yahoo_symbol(stock_id):
-    return f"{stock_id}.TW" if is_tw_ticker(stock_id) else stock_id
+    """台股上市 .TW、上櫃 .TWO；用 twstock 對照表判斷，找不到預設 .TW。"""
+    if not is_tw_ticker(stock_id):
+        return stock_id
+    try:
+        import twstock
+        info = twstock.codes.get(stock_id)
+        if info and info.market and "上櫃" in info.market:
+            return f"{stock_id}.TWO"
+    except Exception:
+        pass
+    return f"{stock_id}.TW"
 
 
 def _format_pct(pct):
@@ -573,10 +583,11 @@ def get_stock_report(stock_id):
     if news_blocks:
         sections.append("<b>📰 最新新聞</b>\n" + "\n\n".join(news_blocks))
 
+    # 各論壇都取前 3；format_forum_html 沒文章會回空字串，下面 if body 會把整段砍掉
     forum_specs = [
-        ("🗣️ PTT Stock", "按推文數", ptt_articles, 5),
+        ("🗣️ PTT Stock", "按推文數", ptt_articles, 3),
         ("🌐 英文論壇", "Reddit + StockTwits 綜合熱度", english_forum_top, 3),
-        ("🎴 Dcard 股票版", "按熱度", dcard_posts, 5),
+        ("🎴 Dcard 股票版", "按熱度", dcard_posts, 3),
     ]
     for title, hint, items, limit in forum_specs:
         body = format_forum_html(items, limit=limit)
