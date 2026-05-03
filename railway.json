@@ -4,8 +4,9 @@
     "builder": "NIXPACKS"
   },
   "deploy": {
-    "startCommand": "python main.py",
-    "cronSchedule": "0 0 * * *",
-    "restartPolicyType": "NEVER"
+    "startCommand": "uvicorn server:app --host 0.0.0.0 --port $PORT",
+    "restartPolicyType": "ON_FAILURE",
+    "healthcheckPath": "/",
+    "healthcheckTimeout": 30
   }
 }
