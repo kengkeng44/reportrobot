@@ -103,37 +103,109 @@ def translate_titles(items):
     return items
 
 
-def get_yahoo_news(stock_id):
+def _struct_time_to_unix(parsed):
+    """feedparser 的 published_parsed (time.struct_time, UTC) → unix int。"""
+    if not parsed:
+        return 0
+    try:
+        import calendar
+        return int(calendar.timegm(parsed))
+    except Exception:
+        return 0
+
+
+def _format_relative_date(unix_ts):
+    """unix timestamp → '今日' / '昨日' / 'N 日前' / 'N 週前' / 'MM/DD'。"""
+    if not unix_ts:
+        return ""
+    try:
+        import time as _time
+        delta_sec = _time.time() - unix_ts
+        days = int(delta_sec // 86400)
+        if days <= 0:
+            return "今日"
+        if days == 1:
+            return "昨日"
+        if days < 7:
+            return f"{days} 日前"
+        if days < 30:
+            return f"{days // 7} 週前"
+        from datetime import datetime
+        return datetime.fromtimestamp(unix_ts).strftime("%m/%d")
+    except Exception:
+        return ""
+
+
+def get_yahoo_news(stock_id, limit=10):
     try:
         ticker = f"{stock_id}.TW" if is_tw_ticker(stock_id) else stock_id
         url = f"https://finance.yahoo.com/rss/headline?s={ticker}"
         feed = feedparser.parse(url)
         news = []
-        for entry in feed.entries[:5]:
-            news.append({"title": entry.get('title', ''), "link": entry.get('link', '')})
+        for entry in feed.entries[:limit]:
+            news.append({
+                "title": entry.get('title', ''),
+                "link": entry.get('link', ''),
+                "published": _struct_time_to_unix(entry.get('published_parsed')
+                                                  or entry.get('updated_parsed')),
+                "source": "Yahoo Finance",
+            })
         return news
     except Exception as e:
         print(f"Yahoo 新聞失敗：{e}")
         return []
 
 
-def get_cnyes_news(stock_id):
+def get_cnyes_news(stock_id, limit=10):
     try:
         url = "https://news.cnyes.com/api/v3/news/category/tw_stock"
-        params = {"keyword": stock_id, "limit": 5}
+        params = {"keyword": stock_id, "limit": limit}
         resp = requests.get(url, params=params, timeout=10)
         data = resp.json()
         items = data.get('items', {}).get('data', [])
         news = []
-        for item in items[:5]:
+        for item in items[:limit]:
             news_id = item.get('newsId', '')
             news.append({
                 "title": item.get('title', ''),
                 "link": f"https://news.cnyes.com/news/id/{news_id}" if news_id else "",
+                "published": int(item.get('publishAt') or 0),
+                "source": "鉅亨網",
             })
         return news
     except Exception as e:
         print(f"鉅亨新聞失敗：{e}")
+        return []
+
+
+def get_google_news(stock_id, stock_name, limit=10):
+    """Google News RSS 搜中文公司名（覆蓋廣、更新快、抓得到 yahoo/cnyes 漏的新聞）。"""
+    try:
+        # 用中文名 + 「股票」當 query；name 跟 id 一樣（沒中文名）就用 id
+        if stock_name and stock_name != stock_id:
+            query = f'"{stock_name}" 股'
+        else:
+            query = f'"{stock_id}" 股'
+        from urllib.parse import quote_plus
+        url = (f"https://news.google.com/rss/search?q={quote_plus(query)}"
+               f"&hl=zh-TW&gl=TW&ceid=TW:zh-Hant")
+        feed = feedparser.parse(url)
+        news = []
+        for entry in feed.entries[:limit]:
+            title = entry.get('title', '')
+            # Google News title 格式：「正文 - 來源網站」，砍掉 source 部分
+            if ' - ' in title:
+                title = title.rsplit(' - ', 1)[0]
+            news.append({
+                "title": title,
+                "link": entry.get('link', ''),
+                "published": _struct_time_to_unix(entry.get('published_parsed')
+                                                  or entry.get('updated_parsed')),
+                "source": "Google News",
+            })
+        return news
+    except Exception as e:
+        print(f"Google News 失敗：{e}")
         return []
 
 
@@ -269,20 +341,25 @@ def get_dcard_posts(stock_id):
         return []
 
 
-def format_news_html(news_list):
-    """只回傳內容（或空字串），由呼叫端決定是否顯示區塊。"""
+def format_news_html(news_list, limit=5):
+    """只回傳內容（或空字串），由呼叫端決定是否顯示區塊。
+    自動加日期前綴（今日 / N 日前 / MM/DD）。"""
     if not news_list:
         return ""
     lines = []
-    for n in news_list[:3]:
+    for n in news_list[:limit]:
         title = n['title']
         zh = n.get('title_zh')
         display = f"{title}（{zh}）" if zh else title
+        date_s = _format_relative_date(n.get('published'))
+        date_prefix = f"[{date_s}] " if date_s else ""
+        source = n.get("source", "")
+        source_prefix = f"<i>{source}</i> " if source else ""
         link = n.get('link', '')
         if link:
-            lines.append(f'  • <a href="{link}">{display}</a>')
+            lines.append(f'  • {date_prefix}{source_prefix}<a href="{link}">{display}</a>')
         else:
-            lines.append(f'  • {display}')
+            lines.append(f'  • {date_prefix}{source_prefix}{display}')
     return "\n".join(lines)
 
 
@@ -579,9 +656,22 @@ def get_stock_report(stock_id):
     print(f"處理股票：{stock_id}")
     stock_name = get_stock_name(stock_id)
 
+    # 三源新聞：Yahoo / 鉅亨 / Google News（中文搜尋名）
     yahoo_news = get_yahoo_news(stock_id)
     cnyes_news = get_cnyes_news(stock_id)
-    translate_titles(yahoo_news + cnyes_news)
+    google_news = get_google_news(stock_id, stock_name)
+    # 翻譯英文標題（CJK 標題會被自動 skip）
+    translate_titles(yahoo_news + cnyes_news + google_news)
+    # 合併、按發布時間 desc 排序、URL 去重
+    all_news = yahoo_news + cnyes_news + google_news
+    seen_links = set()
+    sorted_news = []
+    for n in sorted(all_news, key=lambda x: x.get("published", 0), reverse=True):
+        link = n.get("link", "")
+        if link and link in seen_links:
+            continue
+        seen_links.add(link)
+        sorted_news.append(n)
 
     ptt_articles = get_ptt_articles(stock_id)
     reddit_stocks = get_reddit_posts(stock_id, "stocks")
@@ -603,9 +693,17 @@ def get_stock_report(stock_id):
     # 把英文標題翻成中文（直接在 dict 上補 title_zh 欄位）
     translate_titles(english_forum_top)
 
-    news_titles = [f"{n['title']}（{n['title_zh']}）" if n.get('title_zh') else n['title']
-                   for n in yahoo_news + cnyes_news]
-    news_summary = "\n".join(f"• {t}" for t in news_titles) or "暫無新聞"
+    # 給 AI 的上下文：取最新 15 篇，每篇含日期 + 來源，方便 AI 排優先
+    news_for_ai = []
+    for n in sorted_news[:15]:
+        title = n["title"]
+        if n.get("title_zh"):
+            title = f"{title}（{n['title_zh']}）"
+        date_s = _format_relative_date(n.get("published"))
+        src = n.get("source", "")
+        prefix = f"[{date_s}|{src}]" if date_s else f"[{src}]"
+        news_for_ai.append(f"• {prefix} {title}")
+    news_summary = "\n".join(news_for_ai) or "暫無新聞"
 
     forum_lines = []
     forum_lines += [f"[PTT {a['heat']}推] {a['title']}" for a in ptt_articles]
@@ -643,15 +741,10 @@ def get_stock_report(stock_id):
     if fundamentals:
         sections.append(f"<b>📊 基本面分析</b>\n{fundamentals}")
 
-    news_blocks = []
-    yahoo_block = format_news_html(yahoo_news)
-    if yahoo_block:
-        news_blocks.append(f"<i>Yahoo Finance</i>\n{yahoo_block}")
-    cnyes_block = format_news_html(cnyes_news)
-    if cnyes_block:
-        news_blocks.append(f"<i>鉅亨網</i>\n{cnyes_block}")
-    if news_blocks:
-        sections.append("<b>📰 最新新聞</b>\n" + "\n\n".join(news_blocks))
+    # 新聞合併顯示最新 3 篇（按發布時間排，含日期；多篇給 AI 分析用）
+    news_block = format_news_html(sorted_news, limit=3)
+    if news_block:
+        sections.append(f"<b>📰 最新新聞</b>\n{news_block}")
 
     # 各論壇都取前 3；format_forum_html 沒文章會回空字串，下面 if body 會把整段砍掉
     forum_specs = [
