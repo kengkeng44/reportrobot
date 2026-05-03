@@ -44,8 +44,26 @@ def is_tw_ticker(stock_id):
     return bool(_TW_TICKER_RE.fullmatch(stock_id or ''))
 
 
+def _twstock_name(stock_id):
+    """從 twstock 內建上市櫃對照表查中文名；找不到回 None。"""
+    try:
+        import twstock
+        info = twstock.codes.get(stock_id)
+        if info and info.name:
+            return info.name
+    except Exception:
+        pass
+    return None
+
+
 def get_stock_name(stock_id):
-    return STOCK_NAMES.get(stock_id, stock_id)
+    """先查 hardcode，沒有再查 twstock，最後 fallback 回 stock_id 本身。"""
+    if stock_id in STOCK_NAMES:
+        return STOCK_NAMES[stock_id]
+    name = _twstock_name(stock_id)
+    if name:
+        return name
+    return stock_id
 
 
 def _has_cjk(text):
@@ -382,6 +400,35 @@ def get_stock_quote_with_history(stock_id):
         return None
 
 
+def get_security_intro(stock_id, name):
+    """AI 用內建知識生成 1-2 句中文簡介；不熟回空字串、整段就不顯示。"""
+    label = name if name and name != stock_id else stock_id
+    prompt = (
+        f"你是金融分析助理。請用 1-2 句繁體中文簡介這檔標的：\n"
+        f"代號：{stock_id}\n"
+        f"名稱：{label}\n\n"
+        f"嚴格規則：\n"
+        f"- 重點放在「是什麼公司或 ETF、做什麼產業/追蹤什麼指數」\n"
+        f"- 1-2 句即可，不要開場白、不要結語、不要 Markdown\n"
+        f"- 如果不熟悉這個代號或無法確定，**只回三個字**：無資料"
+    )
+    try:
+        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        msg = client.messages.create(
+            model="claude-haiku-4-5-20251001",  # haiku 4.5 便宜快速
+            max_tokens=200,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text = msg.content[0].text.strip() if msg.content else ""
+        # AI 表示不熟悉就跳過
+        if text in ("無資料", "無資料。", "無", "") or "不熟悉" in text or "無法確定" in text:
+            return ""
+        return text
+    except Exception as e:
+        print(f"簡介生成失敗 {stock_id}: {e}")
+        return ""
+
+
 def get_etf_top_holdings(stock_id, top_n=5):
     """ETF 前 N 大持股（透過 yfinance.funds_data.top_holdings）。
     回 list of {symbol, name, weight}；不是 ETF 或新上市無歷史資料就回 None。"""
@@ -501,12 +548,17 @@ def get_stock_report(stock_id):
     header = stock_id if stock_name == stock_id else f"{stock_id} {stock_name}"
     sections = [f"<b>📌 {header}</b>"]
 
-    # 股價區塊（最先顯示，方便快速掃）
+    # 簡介（AI 不熟就回空字串、整段不顯示）
+    intro = get_security_intro(stock_id, stock_name)
+    if intro:
+        sections.append(f"<b>📖 簡介</b>\n{intro}")
+
+    # 股價區塊（方便快速掃）
     quote = get_stock_quote_with_history(stock_id)
     if quote:
         sections.append(f"<b>💰 股價</b>\n{_format_quote_block(stock_id, quote)}")
 
-    # ETF 前五大持股（一般個股 Yahoo 不會回 topHoldings，自動 None 略過）
+    # ETF 前五大持股（一般個股 yfinance 不會回 funds_data，自動 None 略過）
     holdings = get_etf_top_holdings(stock_id)
     if holdings:
         sections.append(f"<b>📦 ETF 前五大持股</b>\n{_format_holdings_block(holdings)}")
