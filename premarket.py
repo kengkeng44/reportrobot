@@ -62,22 +62,35 @@ def is_weekend():
     return date.today().weekday() >= 5  # Sat=5, Sun=6
 
 
+def _format_pct(pct):
+    """漲跌百分比格式化成固定寬度，並在百分比區段前墊半形空白讓視覺對齊。
+    例： '+0.34%' / '-1.20%' / '+12.5%' / '-100%'。
+    LINE 字型非等寬，無法完美對齊，但 % 永遠在第 6 字內。"""
+    sign = "+" if pct >= 0 else "-"
+    abs_pct = abs(pct)
+    if abs_pct >= 100:
+        body = f"{abs_pct:.0f}%"
+    elif abs_pct >= 10:
+        body = f"{abs_pct:.1f}%"
+    else:
+        body = f"{abs_pct:.2f}%"
+    return f"{sign}{body}"
+
+
 def _quote_line(symbol, label):
     q = get_index_quote(symbol)
     if not q:
-        return f"{label}｜N/A"
+        return f"⚪ ─────｜{label}｜N/A"
     price, change, pct = q
     emoji = "🟢" if change >= 0 else "🔴"
-    sign = "+" if change >= 0 else ""
-    return (
-        f"{emoji} {label}｜{_format_price(price)}｜"
-        f"{sign}{change:,.2f}｜{sign}{pct:.2f}%"
-    )
+    pct_str = _format_pct(pct)
+    return f"{emoji} {pct_str}｜{label}｜{_format_price(price)}"
 
 
 def _format_chip(value):
-    sign = "+" if value > 0 else ""
-    return f"{sign}{value:.2f}"
+    """三大法人金額：±NNN.NN 億，固定寬度方便視覺對齊。"""
+    sign = "+" if value >= 0 else "-"
+    return f"{sign}{abs(value):.2f} 億"
 
 
 def _build_chip_block():
@@ -90,7 +103,7 @@ def _build_chip_block():
         if v is None:
             continue
         emoji = "🟢" if v >= 0 else "🔴"
-        lines.append(f"{emoji} {label}｜{_format_chip(v)} 億元")
+        lines.append(f"{emoji} {_format_chip(v)}｜{label}")
     return "\n".join(lines)
 
 
@@ -98,27 +111,31 @@ def _build_ai_summary():
     """用 Claude web_search 整理盤前重點。失敗回空字串。"""
     today = date.today().strftime("%Y-%m-%d")
     prompt = (
-        f"今天是 {today}（台北時間），請用網路搜尋整理今日台股開盤前重點。\n"
-        f"輸出格式：純文字繁體中文，不要 Markdown，每點 `• ` 開頭，總共 5-7 條：\n\n"
+        f"今天是 {today}（台北時間）。請用網路搜尋整理今日台股開盤前重點。\n"
+        f"輸出 8-10 條 bullet，每點 `• ` 開頭，純文字繁體中文，不要 Markdown。\n\n"
         f"請涵蓋以下面向（找不到資訊就跳過該面向，不要編造）：\n"
         f"1. 美聯準會（Fed）動向：近期談話、會議紀要、利率機率變化\n"
-        f"2. 重要經濟數據：近期已公布或本週將公布的 CPI/PPI/非農/PMI/GDP\n"
-        f"3. 地緣政治與重大事件：貿易戰、關稅、戰爭、選舉等對股市可能有影響\n"
-        f"4. 強勢/弱勢類股輪動：昨日台股或美股的明顯資金流向\n"
-        f"5. 今日台股召開法說會的重要公司（如有）\n\n"
+        f"2. 重要經濟數據：近期已公布或本週將公布的 CPI/PPI/非農/PMI/GDP/零售銷售\n"
+        f"3. 地緣政治與重大事件：貿易戰、關稅、戰爭、選舉、央行政策對股市的影響\n"
+        f"4. 強勢/弱勢類股輪動：昨夜美股與最近台股的明顯資金流向（AI/半導體/PCB/航運/金融等）\n"
+        f"5. 重要個股動態：權值股法說重點、財報、併購、減資等\n"
+        f"6. 今日台股召開法說會的重要公司（如有）\n"
+        f"7. 美股盤後/盤前重要科技股表現（NVDA/TSM/AAPL/MSFT/AMD 等）\n"
+        f"8. 國際原物料、加密貨幣異動（油金、比特幣，如果有顯著變化）\n\n"
         f"規則：\n"
-        f"- 每點 1-2 句話，總共 5-7 條 bullet（• 開頭）\n"
-        f"- 直接列出 bullet，不要開場白與結語"
+        f"- 每點 1-2 句話，要有具體數字或事件名稱（不要寫「市場關注 Fed」這種空話）\n"
+        f"- 8-10 條 bullet，重要面向多列，不重要的面向就略過\n"
+        f"- 直接列出 bullet，禁止開場白與結語"
     )
     try:
         client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
         message = client.messages.create(
             model="claude-sonnet-4-5",
-            max_tokens=900,
+            max_tokens=1500,
             tools=[{
                 "type": "web_search_20250305",
                 "name": "web_search",
-                "max_uses": 4,
+                "max_uses": 5,
             }],
             messages=[{"role": "user", "content": prompt}],
         )

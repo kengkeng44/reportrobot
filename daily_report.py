@@ -8,7 +8,6 @@
 import traceback
 from datetime import date
 from weather import get_weather_report
-from markets import build_market_summary
 from premarket import build_premarket_report
 from line_sender import push_message
 
@@ -34,10 +33,7 @@ async def run_daily_report(force_premarket=False):
         return f"<b>🌅 每日情報</b>  {today}\n\n<b>🌤️ 天氣報告</b>\n\n{weather_msg}"
     await _push_safe("天氣", _weather)
 
-    # 2. 大盤指數（每天都發）
-    await _push_safe("大盤", build_market_summary)
-
-    # 3. 盤前報告（週末略過；force=True 時 bypass 檢查）
+    # 2. 盤前報告（含國際指數/匯率/三大法人/AI 重點；週末略過，force=True bypass）
     await _push_safe("盤前", lambda: build_premarket_report(force=force_premarket))
 
     print("每日情報傳送完成！")
