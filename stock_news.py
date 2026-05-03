@@ -322,6 +322,89 @@ def get_ai_analysis(stock_id, news_summary, forum_summary):
         return f"AI 分析暫時無法取得：{e}"
 
 
+def _to_yahoo_symbol(stock_id):
+    return f"{stock_id}.TW" if is_tw_ticker(stock_id) else stock_id
+
+
+def _format_pct(pct):
+    if pct is None:
+        return "N/A"
+    sign = "+" if pct >= 0 else "-"
+    a = abs(pct)
+    if a >= 100:
+        body = f"{a:.0f}%"
+    elif a >= 10:
+        body = f"{a:.1f}%"
+    else:
+        body = f"{a:.2f}%"
+    return f"{sign}{body}"
+
+
+def get_stock_quote_with_history(stock_id):
+    """回 dict 含當前價、日漲跌、5 日 / 1 月漲跌；失敗回 None。"""
+    symbol = _to_yahoo_symbol(stock_id)
+    try:
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
+        r = requests.get(
+            url,
+            params={"interval": "1d", "range": "3mo"},
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=10,
+        )
+        data = r.json()
+        result = (data.get("chart", {}) or {}).get("result") or []
+        if not result:
+            return None
+        meta = result[0].get("meta", {}) or {}
+        price = meta.get("regularMarketPrice")
+        prev = meta.get("previousClose") or meta.get("chartPreviousClose")
+        if price is None or prev is None:
+            return None
+
+        change = price - prev
+        pct = (change / prev * 100) if prev else None
+
+        # 從歷史 close 算 5 日 / ~1 月（22 交易日）漲跌
+        closes = (((result[0].get("indicators") or {}).get("quote") or [{}])[0]
+                  .get("close") or [])
+        valid = [c for c in closes if c is not None]
+        pct_5d = pct_1mo = None
+        if len(valid) >= 6:
+            pct_5d = (price - valid[-6]) / valid[-6] * 100  # -6 因為 -1 是今天
+        if len(valid) >= 23:
+            pct_1mo = (price - valid[-23]) / valid[-23] * 100
+        return {
+            "price": price, "change": change, "pct": pct,
+            "pct_5d": pct_5d, "pct_1mo": pct_1mo,
+        }
+    except Exception as e:
+        print(f"股價歷史抓取失敗 {symbol}: {e}")
+        return None
+
+
+def _format_quote_block(stock_id, quote):
+    """組成股價 HTML 區塊。"""
+    is_us = not is_tw_ticker(stock_id)
+    prefix = "$" if is_us else ""
+    price = quote["price"]
+    if abs(price) >= 1000:
+        price_s = f"{prefix}{price:,.0f}"
+    else:
+        price_s = f"{prefix}{price:,.2f}"
+    pct = quote["pct"]
+    emoji = "🟢" if pct is not None and pct >= 0 else "🔴"
+
+    lines = [
+        f"{emoji} 現價｜{price_s}",
+        f"日漲跌｜{_format_pct(pct)}",
+    ]
+    if quote.get("pct_5d") is not None:
+        lines.append(f"五日漲跌｜{_format_pct(quote['pct_5d'])}")
+    if quote.get("pct_1mo") is not None:
+        lines.append(f"月漲跌｜{_format_pct(quote['pct_1mo'])}")
+    return "\n".join(lines)
+
+
 def get_stock_report(stock_id):
     print(f"處理股票：{stock_id}")
     stock_name = get_stock_name(stock_id)
@@ -366,7 +449,14 @@ def get_stock_report(stock_id):
 
     ai_analysis = get_ai_analysis(stock_id, news_summary, forum_summary)
 
-    sections = [f"<b>📌 {stock_id} {stock_name}</b>"]
+    # 標題：name 跟 id 一樣（沒在 STOCK_NAMES 找到）就只顯示 id 一次
+    header = stock_id if stock_name == stock_id else f"{stock_id} {stock_name}"
+    sections = [f"<b>📌 {header}</b>"]
+
+    # 股價區塊（最先顯示，方便快速掃）
+    quote = get_stock_quote_with_history(stock_id)
+    if quote:
+        sections.append(f"<b>💰 股價</b>\n{_format_quote_block(stock_id, quote)}")
 
     news_blocks = []
     yahoo_block = format_news_html(yahoo_news)

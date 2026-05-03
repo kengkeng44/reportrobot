@@ -107,6 +107,23 @@ def _build_chip_block():
     return "\n".join(lines)
 
 
+def _strip_to_bullets(text):
+    """只留 • / ・ / - / * 開頭的行；沒 bullet 一律回空字串。"""
+    if not text:
+        return ""
+    lines = [l.rstrip() for l in text.splitlines()]
+    bullets = []
+    started = False
+    for line in lines:
+        stripped = line.lstrip()
+        if stripped.startswith(("•", "・", "-", "*")):
+            bullets.append(stripped)
+            started = True
+        elif started:
+            break
+    return "\n".join(bullets)
+
+
 def _build_ai_summary():
     """用 Claude web_search 整理盤前重點。失敗回空字串。"""
     today = date.today().strftime("%Y-%m-%d")
@@ -143,7 +160,8 @@ def _build_ai_summary():
         for block in message.content:
             if getattr(block, "type", None) == "text":
                 text = block.text
-        return text.strip()
+        # 只留 bullet 行：AI 找不到資料時的開場白/結語/「無法找到」散文一律砍掉
+        return _strip_to_bullets(text.strip())
     except Exception as e:
         print(f"AI 盤前整理失敗：{e}")
         return ""
