@@ -75,6 +75,34 @@ async def root():
     return {"status": "ok", "service": "reportrobot"}
 
 
+@app.get("/admin/env-check")
+async def env_check():
+    """Server 看到的環境變數狀態（只回 set/len，不洩漏值）。Debug 用。"""
+    keys = [
+        "ADMIN_TOKEN",
+        "LINE_CHANNEL_TOKEN",
+        "LINE_CHANNEL_SECRET",
+        "LINE_GROUP_ID",
+        "GMAIL_USER",
+        "TOKEN_PICKLE_B64",
+        "ANTHROPIC_API_KEY",
+        "CWA_API_KEY",
+        "OWM_API_KEY",
+        "PDF_PASSWORD_PREFIX",
+        "MANUAL_STOCKS",
+        "WEATHER_LOCATIONS",
+        "PYTHONUNBUFFERED",
+        "TZ",
+    ]
+    return {
+        k: {
+            "set": bool(os.environ.get(k)),
+            "len": len(os.environ.get(k, "")),
+        }
+        for k in keys
+    }
+
+
 @app.post("/line/webhook")
 async def line_webhook(
     request: Request,
