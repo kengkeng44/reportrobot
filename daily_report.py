@@ -2,8 +2,10 @@
 每日報告（08:00 推送）：天氣 → 大盤指數 → 盤前報告。
 持倉與個股改成 on-demand：使用者用 /仁和持股、/2330、/AAPL 等指令查。
 週末略過盤前段，其他照發。
+任一段失敗只 log，不中斷其他段推送。
 """
 
+import traceback
 from datetime import date
 from weather import get_weather_report
 from markets import build_market_summary
@@ -11,27 +13,31 @@ from premarket import build_premarket_report
 from line_sender import push_message
 
 
-SEP = "━━━━━━━━━━━━━━━━━"
+async def _push_safe(label, body_fn):
+    """執行 body_fn() 拿段落字串；失敗只 log 不中斷整體流程。"""
+    try:
+        body = body_fn()
+        if body:
+            await push_message(body)
+    except Exception as e:
+        print(f"[{label}] 失敗：{e}")
+        traceback.print_exc()
 
 
 async def run_daily_report():
     print("開始執行每日情報...")
     today = date.today().strftime("%Y-%m-%d")
 
-    # 1. 天氣（含近期活動）
-    weather_msg, _ = get_weather_report()  # chart_path 不用了，LINE 不傳圖
-    await push_message(
-        f"<b>🌅 每日情報</b>  {today}\n\n"
-        f"{SEP}\n<b>🌤️ 天氣報告</b>\n{SEP}\n\n{weather_msg}"
-    )
+    # 1. 天氣 + 近期活動
+    def _weather():
+        weather_msg, _ = get_weather_report()  # chart_path 不用，LINE 不傳圖
+        return f"<b>🌅 每日情報</b>  {today}\n\n<b>🌤️ 天氣報告</b>\n\n{weather_msg}"
+    await _push_safe("天氣", _weather)
 
-    # 2. 大盤指數（簡版，每天都發）
-    market = build_market_summary()
-    await push_message(f"{SEP}\n{market}\n{SEP}")
+    # 2. 大盤指數（每天都發）
+    await _push_safe("大盤", build_market_summary)
 
-    # 3. 盤前報告（完整版，週末略過）
-    premarket = build_premarket_report()
-    if premarket:
-        await push_message(f"{SEP}\n{premarket}\n{SEP}")
+    # 3. 盤前報告（週末略過：build_premarket_report 內部會回 None）
+    await _push_safe("盤前", build_premarket_report)
 
     print("每日情報傳送完成！")

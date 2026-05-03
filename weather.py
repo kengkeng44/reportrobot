@@ -415,9 +415,9 @@ def get_weather_report():
         print(f"AI 天氣整理失敗：{e}")
         weather_text = "天氣資料暫時無法取得"
 
-    # 接在「今日重點提醒」之後加「📅 近期活動」
+    # 接在「今日重點提醒」之後加「📅 近期活動」；AI 回「無」就整段不顯示
     events = get_local_events(WEATHER_LOCATIONS)
-    if events:
+    if events and events.strip() not in ("", "無", "無。", "無.", "無\n"):
         weather_text = f"{weather_text}\n\n📅 近期活動\n{events}"
 
     return weather_text, chart_path

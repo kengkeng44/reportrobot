@@ -65,13 +65,13 @@ def is_weekend():
 def _quote_line(symbol, label):
     q = get_index_quote(symbol)
     if not q:
-        return f"  {label}：N/A"
+        return f"{label}｜N/A"
     price, change, pct = q
     emoji = "🟢" if change >= 0 else "🔴"
     sign = "+" if change >= 0 else ""
     return (
-        f"  {emoji} {label}：{_format_price(price)}　"
-        f"{sign}{change:,.2f}（{sign}{pct:.2f}%）"
+        f"{emoji} {label}｜{_format_price(price)}｜"
+        f"{sign}{change:,.2f}｜{sign}{pct:.2f}%"
     )
 
 
@@ -83,14 +83,14 @@ def _format_chip(value):
 def _build_chip_block():
     chips = get_institutional_trades()
     if not chips:
-        return "  N/A（資料尚未公布或抓取失敗）"
-    lines = [f"  📅 {chips['date']} 收盤"]
+        return "N/A（資料尚未公布或抓取失敗）"
+    lines = [f"📅 {chips['date']} 收盤"]
     for label, key in [("外資", "foreign"), ("投信", "investment_trust"), ("自營商", "dealer")]:
         v = chips.get(key)
         if v is None:
             continue
         emoji = "🟢" if v >= 0 else "🔴"
-        lines.append(f"  {emoji} {label}：{_format_chip(v)} 億元")
+        lines.append(f"{emoji} {label}｜{_format_chip(v)} 億元")
     return "\n".join(lines)
 
 

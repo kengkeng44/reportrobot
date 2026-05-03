@@ -48,18 +48,18 @@ def _format_price(value):
 
 
 def build_market_summary():
-    """回 HTML 字串（給 LINE _strip_html 後變純文字）。"""
+    """回 HTML 字串（LINE 收到時 _strip_html 後變純文字）。"""
     lines = ["<b>📊 大盤指數</b>"]
     for symbol, label in INDEX_LABELS:
         q = get_index_quote(symbol)
         if not q:
-            lines.append(f"  {label}：N/A")
+            lines.append(f"{label}｜N/A")
             continue
         price, change, pct = q
         emoji = "🟢" if change >= 0 else "🔴"
         sign = "+" if change >= 0 else ""
         lines.append(
-            f"  {emoji} {label}：{_format_price(price)}　"
-            f"{sign}{change:,.2f}（{sign}{pct:.2f}%）"
+            f"{emoji} {label}｜{_format_price(price)}｜"
+            f"{sign}{change:,.2f}｜{sign}{pct:.2f}%"
         )
     return "\n".join(lines)
