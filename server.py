@@ -118,12 +118,18 @@ async def line_webhook(
 
     for event in events:
         if event.get("type") != "message":
+            # 也印 join / leave / 其他事件的 source，方便釣 groupId
+            source = event.get("source", {}) or {}
+            print(f"[webhook] event={event.get('type')} source={source}")
             continue
         msg = event.get("message", {}) or {}
         if msg.get("type") != "text":
             continue
         text = msg.get("text", "")
         reply_token = event.get("replyToken")
+        source = event.get("source", {}) or {}
+        # 每筆訊息都印 source（含 groupId/userId），方便釣新群組 ID
+        print(f"[webhook] message text={text[:30]!r} source={source}")
         if not reply_token:
             continue
 
