@@ -382,6 +382,54 @@ def get_stock_quote_with_history(stock_id):
         return None
 
 
+def get_etf_top_holdings(stock_id, top_n=5):
+    """ETF 前 N 大持股（透過 yfinance.funds_data.top_holdings）。
+    回 list of {symbol, name, weight}；不是 ETF 或新上市無歷史資料就回 None。"""
+    symbol = _to_yahoo_symbol(stock_id)
+    try:
+        import yfinance as yf
+        ticker = yf.Ticker(symbol)
+        try:
+            top = ticker.funds_data.top_holdings
+        except Exception:
+            # 不是 ETF 或 yfinance 認為沒 funds_data 都會 raise
+            return None
+        if top is None or top.empty:
+            return None
+        out = []
+        for sym, row in top.head(top_n).iterrows():
+            weight_raw = row.get("Holding Percent")
+            weight = weight_raw * 100 if isinstance(weight_raw, (int, float)) else None
+            out.append({
+                "symbol": str(sym) if sym else "",
+                "name": str(row.get("Name", "") or ""),
+                "weight": weight,
+            })
+        return out
+    except Exception as e:
+        print(f"ETF 持股抓取失敗 {stock_id}: {e}")
+        return None
+
+
+def _format_holdings_block(holdings):
+    lines = []
+    for h in holdings:
+        sym = (h.get("symbol") or "").strip()
+        name = (h.get("name") or "").strip()
+        weight = h.get("weight")
+        weight_s = f"{weight:.2f}%" if weight is not None else "N/A"
+        if sym and name and sym != name:
+            display = f"{sym} {name}"
+        elif name:
+            display = name
+        elif sym:
+            display = sym
+        else:
+            display = "?"
+        lines.append(f"  {weight_s}｜{display}")
+    return "\n".join(lines)
+
+
 def _format_quote_block(stock_id, quote):
     """組成股價 HTML 區塊。"""
     is_us = not is_tw_ticker(stock_id)
@@ -457,6 +505,11 @@ def get_stock_report(stock_id):
     quote = get_stock_quote_with_history(stock_id)
     if quote:
         sections.append(f"<b>💰 股價</b>\n{_format_quote_block(stock_id, quote)}")
+
+    # ETF 前五大持股（一般個股 Yahoo 不會回 topHoldings，自動 None 略過）
+    holdings = get_etf_top_holdings(stock_id)
+    if holdings:
+        sections.append(f"<b>📦 ETF 前五大持股</b>\n{_format_holdings_block(holdings)}")
 
     news_blocks = []
     yahoo_block = format_news_html(yahoo_news)
