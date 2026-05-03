@@ -447,7 +447,9 @@ def _format_pct(pct):
 
 
 def get_stock_quote_with_history(stock_id):
-    """回 dict 含當前價、日漲跌、5 日 / 1 月漲跌；失敗回 None。"""
+    """回 dict 含當前價、日漲跌、5 日 / 1 月漲跌；失敗回 None。
+    日漲跌的 baseline 用 chart 倒數第二個 close（最準），不用 chartPreviousClose
+    （那是 3 個月前的前一天，會算成「相對 3 個月前的漲跌」嚴重失真）。"""
     symbol = _to_yahoo_symbol(stock_id)
     try:
         url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
@@ -462,21 +464,30 @@ def get_stock_quote_with_history(stock_id):
         if not result:
             return None
         meta = result[0].get("meta", {}) or {}
-        price = meta.get("regularMarketPrice")
-        prev = meta.get("previousClose") or meta.get("chartPreviousClose")
-        if price is None or prev is None:
-            return None
-
-        change = price - prev
-        pct = (change / prev * 100) if prev else None
-
-        # 從歷史 close 算 5 日 / ~1 月（22 交易日）漲跌
         closes = (((result[0].get("indicators") or {}).get("quote") or [{}])[0]
                   .get("close") or [])
         valid = [c for c in closes if c is not None]
+        if not valid:
+            return None
+
+        price = meta.get("regularMarketPrice") or valid[-1]
+
+        # 日漲跌的 baseline：優先 meta.previousClose（最準），
+        # 沒有再 fallback 到 chart 倒數第二個 close（valid[-2]）。
+        # **絕不用 chartPreviousClose** — 那是 3 個月前的前一天 close，會算成 3 月漲跌。
+        prev = meta.get("previousClose")
+        if prev is None and len(valid) >= 2:
+            prev = valid[-2]
+        if prev is None or prev == 0:
+            return None
+
+        change = price - prev
+        pct = (change / prev * 100)
+
+        # 5 日 / 1 月（~22 交易日）漲跌
         pct_5d = pct_1mo = None
         if len(valid) >= 6:
-            pct_5d = (price - valid[-6]) / valid[-6] * 100  # -6 因為 -1 是今天
+            pct_5d = (price - valid[-6]) / valid[-6] * 100
         if len(valid) >= 23:
             pct_1mo = (price - valid[-23]) / valid[-23] * 100
         return {
