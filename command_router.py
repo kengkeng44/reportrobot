@@ -56,7 +56,8 @@ def _strip_prefix(text):
 
 
 def _find_tw_ticker_by_name(query):
-    """從 twstock 對照表反查包含 query 的 ticker；多個 match 取最短代號（通常是主要的）。"""
+    """從 twstock 對照表反查包含 query 的 ticker；多個 match 取最短代號（通常是主要的）。
+    找不到時印 log 方便 debug typo（如永崴/永葳/永威），但不主動回應使用者。"""
     if not query or not _CJK_RE.search(query):
         return None
     try:
@@ -64,6 +65,7 @@ def _find_tw_ticker_by_name(query):
         candidates = [code for code, info in twstock.codes.items()
                       if info.name and query in info.name]
         if not candidates:
+            print(f"中文反查無 match: {query!r}（可能是 typo 或 twstock 對照表沒收錄）")
             return None
         # 過濾掉超過 6 位的（權證、特殊金融商品代號通常 6 位以上）
         normal = [c for c in candidates if len(c) <= 6]
