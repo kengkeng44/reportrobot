@@ -11,6 +11,32 @@ _PORTFOLIO_KEYWORDS = {
     "portfolio", "Portfolio", "PORTFOLIO",
 }
 
+_HELP_KEYWORDS = {
+    "help", "Help", "HELP", "說明", "指令", "幫助", "教學", "?", "？",
+}
+
+HELP_TEXT = (
+    "🤖 喵管家指令清單\n"
+    "\n"
+    "📈 查股票（直接打代號）\n"
+    "  • 台股：2330 / /2330 / 查2330\n"
+    "  • 美股：AAPL / /aapl / 查TSLA\n"
+    "  • ETF：00631L\n"
+    "\n"
+    "💼 查仁和持倉\n"
+    "  • 仁和持股 / 我的持股 / 持股\n"
+    "\n"
+    "🆘 顯示這個說明\n"
+    "  • help / 說明 / ?\n"
+    "\n"
+    "📅 每天 08:00 自動推送\n"
+    "  • 🌤️ 淡水區天氣 + 近期活動\n"
+    "  • 📊 盤前報告（週末略過）\n"
+    "\n"
+    "ℹ️ 一般聊天不會被當指令，家人聊天不會被打擾。\n"
+    "查股票要等 5-10 秒（爬新聞 + AI 分析）。"
+)
+
 # 偵測前綴：開頭是 / 或「查」
 _HAS_PREFIX_RE = re.compile(r"^\s*[/查]")
 # 真正去掉前綴 + 內外空白
@@ -29,13 +55,16 @@ def _strip_prefix(text):
 
 
 def parse(text):
-    """回 (kind, arg) 或 None。kind ∈ {'portfolio', 'stock'}。"""
+    """回 (kind, arg) 或 None。kind ∈ {'help', 'portfolio', 'stock'}。"""
     if not text:
         return None
     has_prefix = bool(_HAS_PREFIX_RE.match(text))
     cleaned = _strip_prefix(text)
     if not cleaned:
         return None
+
+    if cleaned in _HELP_KEYWORDS:
+        return ("help", None)
 
     if cleaned in _PORTFOLIO_KEYWORDS:
         return ("portfolio", None)
@@ -64,6 +93,9 @@ def handle(text):
 
     kind, arg = parsed
     try:
+        if kind == "help":
+            return HELP_TEXT
+
         if kind == "portfolio":
             from gmail_reader import get_portfolio_from_gmail
             from portfolio import build_portfolio_summary
