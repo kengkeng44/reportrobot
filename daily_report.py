@@ -24,8 +24,8 @@ async def _push_safe(label, body_fn):
         traceback.print_exc()
 
 
-async def run_daily_report():
-    print("開始執行每日情報...")
+async def run_daily_report(force_premarket=False):
+    print(f"開始執行每日情報... (force_premarket={force_premarket})")
     today = date.today().strftime("%Y-%m-%d")
 
     # 1. 天氣 + 近期活動
@@ -37,7 +37,7 @@ async def run_daily_report():
     # 2. 大盤指數（每天都發）
     await _push_safe("大盤", build_market_summary)
 
-    # 3. 盤前報告（週末略過：build_premarket_report 內部會回 None）
-    await _push_safe("盤前", build_premarket_report)
+    # 3. 盤前報告（週末略過；force=True 時 bypass 檢查）
+    await _push_safe("盤前", lambda: build_premarket_report(force=force_premarket))
 
     print("每日情報傳送完成！")

@@ -132,9 +132,9 @@ def _build_ai_summary():
         return ""
 
 
-def build_premarket_report():
-    """組成盤前報告 HTML 字串；週末回 None（呼叫端會 skip）。"""
-    if is_weekend():
+def build_premarket_report(force=False):
+    """組成盤前報告 HTML 字串；週末回 None（呼叫端會 skip）。force=True 強跑。"""
+    if is_weekend() and not force:
         print("週末，盤前報告 skip")
         return None
 
